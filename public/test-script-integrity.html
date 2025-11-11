@@ -1,0 +1,747 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Script Integrity Monitor - Test Suite</title>
+
+  <!-- Load Script Integrity Monitor -->
+  <script src="script-integrity-config.js"></script>
+  <script src="script-integrity-monitor.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      background: #1e1e1e;
+      color: #d4d4d4;
+      padding: 20px;
+    }
+    .header {
+      background: #252526;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+    }
+    h1 {
+      color: #4ec9b0;
+      margin-bottom: 10px;
+    }
+    .status {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 3px;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .status.pass { background: #4caf50; color: white; }
+    .status.fail { background: #f44336; color: white; }
+    .status.warn { background: #ff9800; color: white; }
+    .status.info { background: #2196f3; color: white; }
+
+    .test-section {
+      background: #252526;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+      border-left: 4px solid #007acc;
+    }
+    .test-section h2 {
+      color: #4ec9b0;
+      margin-bottom: 15px;
+      font-size: 18px;
+    }
+    .test-case {
+      background: #1e1e1e;
+      padding: 15px;
+      margin-bottom: 10px;
+      border-radius: 3px;
+      border-left: 3px solid #555;
+    }
+    .test-case.pass { border-left-color: #4caf50; }
+    .test-case.fail { border-left-color: #f44336; }
+    .test-case h3 {
+      color: #dcdcaa;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .test-result {
+      margin-top: 8px;
+      padding: 8px;
+      background: #2d2d30;
+      border-radius: 3px;
+      font-size: 12px;
+    }
+    .code {
+      background: #2d2d30;
+      padding: 10px;
+      border-radius: 3px;
+      margin-top: 8px;
+      font-size: 12px;
+      overflow-x: auto;
+    }
+    button {
+      background: #007acc;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 14px;
+      margin-right: 10px;
+      margin-top: 10px;
+    }
+    button:hover { background: #005a9e; }
+    button.danger { background: #f44336; }
+    button.danger:hover { background: #d32f2f; }
+
+    .controls {
+      background: #252526;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+    }
+    .summary {
+      background: #252526;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 4px;
+      border-left: 4px solid #4caf50;
+    }
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 15px;
+      margin-top: 15px;
+    }
+    .summary-item {
+      background: #1e1e1e;
+      padding: 15px;
+      border-radius: 3px;
+    }
+    .summary-label {
+      color: #858585;
+      font-size: 12px;
+      margin-bottom: 5px;
+    }
+    .summary-value {
+      color: #4ec9b0;
+      font-size: 24px;
+      font-weight: bold;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    th, td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #333;
+      font-size: 12px;
+    }
+    th {
+      color: #4ec9b0;
+      font-weight: bold;
+    }
+    .violation-table {
+      background: #2d2d30;
+      padding: 10px;
+      border-radius: 3px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Script Integrity Monitor - Test Suite</h1>
+    <p>Comprehensive testing for PCI DSS 6.4.3 compliance</p>
+  </div>
+
+  <div class="controls">
+    <h2 style="color: #4ec9b0; margin-bottom: 15px;">Test Controls</h2>
+    <button onclick="runAllTests()">Run All Tests</button>
+    <button onclick="refreshStatus()">Refresh Status</button>
+    <button onclick="exportReport()">Export Report</button>
+    <button onclick="clearConsole()">Clear Console</button>
+    <button class="danger" onclick="testViolation()">Test Violation</button>
+  </div>
+
+  <div class="summary" id="summaryPanel">
+    <h2 style="color: #4ec9b0; margin-bottom: 15px;">Monitor Status</h2>
+    <div id="summaryContent">Loading...</div>
+  </div>
+
+  <div id="testResults"></div>
+
+  <script>
+    // Test Suite Implementation
+    class ScriptIntegrityTestSuite {
+      constructor() {
+        this.tests = [];
+        this.results = [];
+      }
+
+      addTest(name, description, testFn) {
+        this.tests.push({ name, description, testFn });
+      }
+
+      async runAllTests() {
+        console.log('=== Running Script Integrity Tests ===');
+        this.results = [];
+
+        for (const test of this.tests) {
+          console.log(`Running: ${test.name}`);
+          try {
+            const result = await test.testFn();
+            this.results.push({
+              name: test.name,
+              description: test.description,
+              passed: result.passed,
+              message: result.message,
+              data: result.data
+            });
+            console.log(`  ${result.passed ? 'PASS' : 'FAIL'}: ${result.message}`);
+          } catch (error) {
+            this.results.push({
+              name: test.name,
+              description: test.description,
+              passed: false,
+              message: `Test error: ${error.message}`,
+              data: null
+            });
+            console.error(`  ERROR:`, error);
+          }
+        }
+
+        this.displayResults();
+        return this.results;
+      }
+
+      displayResults() {
+        const container = document.getElementById('testResults');
+        const passed = this.results.filter(r => r.passed).length;
+        const failed = this.results.filter(r => !r.passed).length;
+
+        let html = `
+          <div class="test-section">
+            <h2>Test Results: ${passed} passed, ${failed} failed</h2>
+        `;
+
+        this.results.forEach(result => {
+          html += `
+            <div class="test-case ${result.passed ? 'pass' : 'fail'}">
+              <h3>
+                <span class="status ${result.passed ? 'pass' : 'fail'}">
+                  ${result.passed ? 'PASS' : 'FAIL'}
+                </span>
+                ${result.name}
+              </h3>
+              <div>${result.description}</div>
+              <div class="test-result">${result.message}</div>
+              ${result.data ? `<div class="code">${JSON.stringify(result.data, null, 2)}</div>` : ''}
+            </div>
+          `;
+        });
+
+        html += '</div>';
+        container.innerHTML = html;
+      }
+    }
+
+    // Initialize test suite
+    const testSuite = new ScriptIntegrityTestSuite();
+
+    // Test 1: Monitor Initialization
+    testSuite.addTest(
+      'Monitor Initialization',
+      'Verify that Script Integrity Monitor is properly initialized',
+      async () => {
+        const monitor = window.__SCRIPT_INTEGRITY_MONITOR__;
+        const api = window.ScriptIntegrityMonitor;
+
+        if (!monitor) {
+          return { passed: false, message: 'Monitor instance not found', data: null };
+        }
+
+        if (!api) {
+          return { passed: false, message: 'Public API not exposed', data: null };
+        }
+
+        return {
+          passed: true,
+          message: 'Monitor initialized successfully',
+          data: {
+            hasMonitor: !!monitor,
+            hasAPI: !!api,
+            methods: Object.keys(api)
+          }
+        };
+      }
+    );
+
+    // Test 2: API Methods
+    testSuite.addTest(
+      'API Methods',
+      'Verify all required API methods are available',
+      async () => {
+        const requiredMethods = ['getInventory', 'getViolations', 'getSummary', 'generateReport', 'exportInventory', 'destroy'];
+        const api = window.ScriptIntegrityMonitor;
+        const missingMethods = requiredMethods.filter(method => typeof api[method] !== 'function');
+
+        if (missingMethods.length > 0) {
+          return {
+            passed: false,
+            message: `Missing methods: ${missingMethods.join(', ')}`,
+            data: { missing: missingMethods }
+          };
+        }
+
+        return {
+          passed: true,
+          message: 'All required API methods available',
+          data: { methods: requiredMethods }
+        };
+      }
+    );
+
+    // Test 3: Script Detection
+    testSuite.addTest(
+      'Script Detection',
+      'Verify monitor detects scripts on the page',
+      async () => {
+        const inventory = window.ScriptIntegrityMonitor.getInventory();
+        const scriptTags = document.querySelectorAll('script').length;
+
+        if (inventory.length === 0) {
+          return { passed: false, message: 'No scripts detected', data: null };
+        }
+
+        return {
+          passed: true,
+          message: `Detected ${inventory.length} scripts (${scriptTags} script tags in DOM)`,
+          data: {
+            inventoryCount: inventory.length,
+            domScriptCount: scriptTags
+          }
+        };
+      }
+    );
+
+    // Test 4: Hash Calculation
+    testSuite.addTest(
+      'Hash Calculation',
+      'Verify scripts have calculated hashes',
+      async () => {
+        const inventory = window.ScriptIntegrityMonitor.getInventory();
+        const withHashes = inventory.filter(s => s.hash && s.hash.startsWith('sha'));
+
+        if (withHashes.length === 0) {
+          return { passed: false, message: 'No scripts have calculated hashes', data: null };
+        }
+
+        return {
+          passed: true,
+          message: `${withHashes.length} of ${inventory.length} scripts have hashes`,
+          data: {
+            total: inventory.length,
+            withHashes: withHashes.length,
+            sampleHash: withHashes[0].hash
+          }
+        };
+      }
+    );
+
+    // Test 5: Configuration Loading
+    testSuite.addTest(
+      'Configuration Loading',
+      'Verify configuration is properly loaded',
+      async () => {
+        const config = window.SCRIPT_INTEGRITY_CONFIG;
+
+        if (!config) {
+          return { passed: false, message: 'Configuration not found', data: null };
+        }
+
+        const requiredKeys = ['hashAlgorithm', 'mode', 'baselineHashes'];
+        const missingKeys = requiredKeys.filter(key => !(key in config));
+
+        if (missingKeys.length > 0) {
+          return {
+            passed: false,
+            message: `Missing config keys: ${missingKeys.join(', ')}`,
+            data: null
+          };
+        }
+
+        return {
+          passed: true,
+          message: 'Configuration loaded successfully',
+          data: {
+            mode: config.mode,
+            hashAlgorithm: config.hashAlgorithm,
+            baselineCount: Object.keys(config.baselineHashes).length
+          }
+        };
+      }
+    );
+
+    // Test 6: Summary Report
+    testSuite.addTest(
+      'Summary Report',
+      'Verify summary statistics are generated',
+      async () => {
+        const summary = window.ScriptIntegrityMonitor.getSummary();
+
+        const requiredFields = ['totalScripts', 'authorizedScripts', 'unauthorizedScripts', 'inlineScripts', 'externalScripts'];
+        const missingFields = requiredFields.filter(field => !(field in summary));
+
+        if (missingFields.length > 0) {
+          return {
+            passed: false,
+            message: `Missing fields: ${missingFields.join(', ')}`,
+            data: null
+          };
+        }
+
+        return {
+          passed: true,
+          message: 'Summary generated successfully',
+          data: summary
+        };
+      }
+    );
+
+    // Test 7: Compliance Report
+    testSuite.addTest(
+      'Compliance Report',
+      'Verify PCI DSS compliance report generation',
+      async () => {
+        const report = window.ScriptIntegrityMonitor.generateReport();
+
+        if (!report.pciDssRequirement || report.pciDssRequirement !== '6.4.3') {
+          return { passed: false, message: 'Invalid PCI DSS requirement', data: null };
+        }
+
+        if (!report.complianceStatus) {
+          return { passed: false, message: 'Missing compliance status', data: null };
+        }
+
+        return {
+          passed: true,
+          message: `Compliance status: ${report.complianceStatus}`,
+          data: {
+            requirement: report.pciDssRequirement,
+            status: report.complianceStatus,
+            reportDate: report.reportDate
+          }
+        };
+      }
+    );
+
+    // Test 8: Dynamic Script Detection
+    testSuite.addTest(
+      'Dynamic Script Detection',
+      'Test detection of dynamically added scripts',
+      async () => {
+        const beforeCount = window.ScriptIntegrityMonitor.getInventory().length;
+
+        // Add a dynamic script
+        const script = document.createElement('script');
+        script.textContent = '// Test dynamic script\nconsole.log("Dynamic test");';
+        document.body.appendChild(script);
+
+        // Wait for observer to detect
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        const afterCount = window.ScriptIntegrityMonitor.getInventory().length;
+
+        if (afterCount <= beforeCount) {
+          return {
+            passed: false,
+            message: `Dynamic script not detected (before: ${beforeCount}, after: ${afterCount})`,
+            data: null
+          };
+        }
+
+        return {
+          passed: true,
+          message: `Dynamic script detected (${afterCount - beforeCount} new script)`,
+          data: { before: beforeCount, after: afterCount }
+        };
+      }
+    );
+
+    // Test 9: Hash Algorithm
+    testSuite.addTest(
+      'Hash Algorithm',
+      'Verify correct hash algorithm is used',
+      async () => {
+        const config = window.SCRIPT_INTEGRITY_CONFIG;
+        const inventory = window.ScriptIntegrityMonitor.getInventory();
+        const scriptWithHash = inventory.find(s => s.hash);
+
+        if (!scriptWithHash) {
+          return { passed: false, message: 'No script with hash found', data: null };
+        }
+
+        const expectedPrefix = config.hashAlgorithm.toLowerCase().replace('-', '');
+        if (!scriptWithHash.hash.startsWith(expectedPrefix)) {
+          return {
+            passed: false,
+            message: `Hash algorithm mismatch (expected ${expectedPrefix})`,
+            data: null
+          };
+        }
+
+        return {
+          passed: true,
+          message: `Correct algorithm: ${config.hashAlgorithm}`,
+          data: { algorithm: config.hashAlgorithm, sampleHash: scriptWithHash.hash }
+        };
+      }
+    );
+
+    // Test 10: Violation Detection
+    testSuite.addTest(
+      'Violation Detection',
+      'Verify unauthorized scripts are detected as violations',
+      async () => {
+        const violations = window.ScriptIntegrityMonitor.getViolations();
+        const summary = window.ScriptIntegrityMonitor.getSummary();
+
+        if (summary.unauthorizedScripts > 0 && violations.length === 0) {
+          return {
+            passed: false,
+            message: 'Unauthorized scripts found but no violations logged',
+            data: null
+          };
+        }
+
+        return {
+          passed: true,
+          message: `${violations.length} violation(s) detected, ${summary.unauthorizedScripts} unauthorized script(s)`,
+          data: {
+            violations: violations.length,
+            unauthorized: summary.unauthorizedScripts
+          }
+        };
+      }
+    );
+
+    // Helper functions
+    function runAllTests() {
+      testSuite.runAllTests();
+    }
+
+    function refreshStatus() {
+      displaySummary();
+      console.log('Status refreshed');
+    }
+
+    function exportReport() {
+      const json = window.ScriptIntegrityMonitor.exportInventory();
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `script-integrity-report-${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      console.log('Report exported');
+    }
+
+    function clearConsole() {
+      console.clear();
+      console.log('Console cleared');
+    }
+
+    function testViolation() {
+      if (!confirm('This will add an unauthorized script to test violation detection. Continue?')) {
+        return;
+      }
+
+      console.warn('Adding unauthorized script...');
+
+      const script = document.createElement('script');
+      script.src = 'https://example.com/unauthorized-test-script-' + Date.now() + '.js';
+      document.head.appendChild(script);
+
+      setTimeout(() => {
+        refreshStatus();
+        runAllTests();
+      }, 1000);
+    }
+
+    function displaySummary() {
+      const summaryContent = document.getElementById('summaryContent');
+
+      if (!window.ScriptIntegrityMonitor) {
+        summaryContent.innerHTML = '<p style="color: #f44336;">Monitor not initialized</p>';
+        return;
+      }
+
+      const summary = window.ScriptIntegrityMonitor.getSummary();
+      const violations = window.ScriptIntegrityMonitor.getViolations();
+      const inventory = window.ScriptIntegrityMonitor.getInventory();
+      const config = window.SCRIPT_INTEGRITY_CONFIG;
+
+      // Server Configuration Status
+      let serverStatus = '';
+      if (config) {
+        const hasServerUrl = config.serverBaseUrl && config.serverBaseUrl !== null;
+        const autoRegEnabled = config.autoRegisterNewScripts === true;
+
+        serverStatus = `
+          <div style="background: ${hasServerUrl && autoRegEnabled ? '#1b5e20' : '#b71c1c'};
+                      padding: 15px;
+                      border-radius: 4px;
+                      margin-bottom: 20px;">
+            <h3 style="color: white; margin-bottom: 10px;">Server Integration</h3>
+            <div style="color: white; font-size: 14px;">
+              <div style="margin-bottom: 5px;">
+                <strong>Server URL:</strong> ${hasServerUrl ? config.serverBaseUrl : '❌ NOT CONFIGURED'}
+              </div>
+              <div style="margin-bottom: 5px;">
+                <strong>Auto-Registration:</strong> ${autoRegEnabled ? '✅ ENABLED' : '❌ DISABLED'}
+              </div>
+              <div style="margin-bottom: 5px;">
+                <strong>Page URL:</strong> ${window.location.href}
+              </div>
+              ${!hasServerUrl ? '<div style="margin-top: 10px; background: rgba(255,255,255,0.2); padding: 10px; border-radius: 3px;"><strong>⚠️ WARNING:</strong> Open this page from the server at <code>http://localhost:3000/test-script-integrity.html</code> to enable API calls!</div>' : ''}
+            </div>
+          </div>
+        `;
+      }
+
+      let html = serverStatus + `
+        <div class="summary-grid">
+          <div class="summary-item">
+            <div class="summary-label">Total Scripts</div>
+            <div class="summary-value">${summary.totalScripts}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Authorized</div>
+            <div class="summary-value" style="color: #4caf50;">${summary.authorizedScripts}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Unauthorized</div>
+            <div class="summary-value" style="color: ${summary.unauthorizedScripts > 0 ? '#f44336' : '#4caf50'};">
+              ${summary.unauthorizedScripts}
+            </div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Violations</div>
+            <div class="summary-value" style="color: ${violations.length > 0 ? '#f44336' : '#4caf50'};">
+              ${violations.length}
+            </div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">Inline Scripts</div>
+            <div class="summary-value">${summary.inlineScripts}</div>
+          </div>
+          <div class="summary-item">
+            <div class="summary-label">External Scripts</div>
+            <div class="summary-value">${summary.externalScripts}</div>
+          </div>
+        </div>
+      `;
+
+      // Show violations if any
+      if (violations.length > 0) {
+        html += `
+          <div style="margin-top: 20px;">
+            <h3 style="color: #f44336; margin-bottom: 10px;">Violations Detected</h3>
+            <div class="violation-table">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Script</th>
+                    <th>Type</th>
+                    <th>Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody>
+        `;
+
+        violations.forEach(v => {
+          html += `
+            <tr>
+              <td>${v.scriptId}</td>
+              <td>${v.violationType}</td>
+              <td>${new Date(v.timestamp).toLocaleString()}</td>
+            </tr>
+          `;
+        });
+
+        html += `
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `;
+      }
+
+      summaryContent.innerHTML = html;
+    }
+
+    // Intercept fetch calls to log API requests
+    const originalFetch = window.fetch;
+    window.fetch = function(...args) {
+      const url = args[0];
+      if (url && (url.includes('/api/scripts/') || url.includes('/api/admin/'))) {
+        console.log('🌐 API Call:', url);
+        console.log('   Method:', args[1]?.method || 'GET');
+        if (args[1]?.body) {
+          try {
+            console.log('   Body:', JSON.parse(args[1].body));
+          } catch (e) {
+            console.log('   Body:', args[1].body);
+          }
+        }
+      }
+      return originalFetch.apply(this, args)
+        .then(response => {
+          if (url && (url.includes('/api/scripts/') || url.includes('/api/admin/'))) {
+            console.log('   Response:', response.status, response.statusText);
+          }
+          return response;
+        })
+        .catch(error => {
+          if (url && (url.includes('/api/scripts/') || url.includes('/api/admin/'))) {
+            console.error('   Error:', error.message);
+          }
+          throw error;
+        });
+    };
+
+    // Initialize on page load
+    window.addEventListener('load', function() {
+      setTimeout(() => {
+        displaySummary();
+        console.log('=== Script Integrity Monitor Test Suite Loaded ===');
+        console.log('Run tests: runAllTests()');
+        console.log('Refresh: refreshStatus()');
+        console.log('Export: exportReport()');
+
+        // Check if we're running from the server
+        if (window.location.protocol === 'file:') {
+          console.warn('⚠️ WARNING: This page is loaded from file:// protocol');
+          console.warn('⚠️ API calls will NOT work!');
+          console.warn('⚠️ Please open: http://localhost:3000/test-script-integrity.html');
+        } else {
+          console.log('✅ Page loaded from server:', window.location.origin);
+          if (window.SCRIPT_INTEGRITY_CONFIG?.serverBaseUrl) {
+            console.log('✅ Auto-registration is ENABLED');
+            console.log('   New scripts will be automatically registered with the server');
+          } else {
+            console.warn('⚠️ Auto-registration is DISABLED (no server URL configured)');
+          }
+        }
+      }, 500);
+    });
+  </script>
+</body>
+</html>
