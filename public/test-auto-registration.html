@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto-Registration Test - PCI DSS Script Monitor</title>
+
+  <!-- CRITICAL: Load these FIRST -->
+  <script src="/script-integrity-config.js"></script>
+  <script src="/script-integrity-monitor.js"></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      background: #f5f7fa;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    h1 {
+      color: #2c3e50;
+      margin-bottom: 10px;
+    }
+    h2 {
+      color: #34495e;
+      margin-top: 30px;
+      margin-bottom: 15px;
+      font-size: 20px;
+    }
+    .subtitle {
+      color: #7f8c8d;
+      margin-bottom: 20px;
+    }
+    .status {
+      padding: 10px 15px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+      font-weight: 500;
+    }
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+      border: 1px solid #c3e6cb;
+    }
+    .status.warning {
+      background: #fff3cd;
+      color: #856404;
+      border: 1px solid #ffeaa7;
+    }
+    .status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+      border: 1px solid #bee5eb;
+    }
+    button {
+      background: #3498db;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      margin-right: 10px;
+      margin-bottom: 10px;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    button.danger {
+      background: #e74c3c;
+    }
+    button.danger:hover {
+      background: #c0392b;
+    }
+    .script-list {
+      list-style: none;
+      padding: 0;
+    }
+    .script-item {
+      padding: 10px;
+      margin-bottom: 10px;
+      background: #f8f9fa;
+      border-left: 4px solid #3498db;
+      border-radius: 4px;
+    }
+    .script-item.new {
+      border-left-color: #f39c12;
+    }
+    .script-item.approved {
+      border-left-color: #27ae60;
+    }
+    .script-item.pending {
+      border-left-color: #e74c3c;
+    }
+    .script-url {
+      font-weight: 500;
+      color: #2c3e50;
+      word-break: break-all;
+    }
+    .script-status {
+      font-size: 12px;
+      color: #7f8c8d;
+      margin-top: 5px;
+    }
+    .script-hash {
+      font-family: monospace;
+      font-size: 11px;
+      color: #95a5a6;
+      margin-top: 5px;
+      word-break: break-all;
+    }
+    pre {
+      background: #2c3e50;
+      color: #ecf0f1;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+    .actions {
+      margin-top: 20px;
+    }
+    code {
+      background: #ecf0f1;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: monospace;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Auto-Registration Test Page</h1>
+    <p class="subtitle">Testing PCI DSS Script Integrity Monitor - Auto-Discovery & Server Registration</p>
+
+    <div id="configStatus" class="status info">
+      ⏳ Checking configuration...
+    </div>
+
+    <h2>📋 Instructions</h2>
+    <ol>
+      <li>Make sure the server is running on <code>localhost:3000</code></li>
+      <li>This page will automatically detect and register new scripts with the server</li>
+      <li>Check the browser console for detailed logs</li>
+      <li>Open the admin panel to see scripts pending approval: <a href="/admin-panel.html" target="_blank">Admin Panel</a></li>
+      <li>Click "Load Test Script" below to dynamically add a new script</li>
+    </ol>
+
+    <h2>🔍 Current Configuration</h2>
+    <pre id="configDetails">Loading...</pre>
+
+    <h2>📜 Detected Scripts</h2>
+    <div id="scriptList">Loading...</div>
+
+    <div class="actions">
+      <h2>🧪 Test Actions</h2>
+      <button onclick="loadTestScript()">Load Test Script (New)</button>
+      <button onclick="loadJQueryFromCDN()">Load jQuery from CDN</button>
+      <button onclick="refreshScriptList()">Refresh Script List</button>
+      <button onclick="checkServerConnection()">Test Server Connection</button>
+      <button class="danger" onclick="loadMaliciousScript()">Load "Malicious" Script (Test Violation)</button>
+    </div>
+
+    <h2>📊 Console Output</h2>
+    <div id="consoleOutput" style="max-height: 300px; overflow-y: auto; background: #f8f9fa; padding: 15px; border-radius: 4px; font-family: monospace; font-size: 12px;">
+      <div style="color: #7f8c8d;">Console messages will appear here...</div>
+    </div>
+  </div>
+
+  <script>
+    // Override console.log to also display in the page
+    const originalLog = console.log;
+    const consoleOutput = document.getElementById('consoleOutput');
+
+    function addConsoleMessage(message, type = 'info') {
+      const div = document.createElement('div');
+      div.style.marginBottom = '5px';
+      div.style.color = type === 'error' ? '#e74c3c' : type === 'success' ? '#27ae60' : '#2c3e50';
+      div.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      consoleOutput.appendChild(div);
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+
+    console.log = function(...args) {
+      originalLog.apply(console, args);
+      addConsoleMessage(args.join(' '));
+    };
+
+    // Wait for monitor to initialize
+    setTimeout(() => {
+      checkConfiguration();
+      refreshScriptList();
+    }, 1000);
+
+    function checkConfiguration() {
+      const config = window.SCRIPT_INTEGRITY_CONFIG;
+      const monitor = window.ScriptIntegrityMonitor;
+
+      const configStatus = document.getElementById('configStatus');
+      const configDetails = document.getElementById('configDetails');
+
+      if (!config) {
+        configStatus.className = 'status warning';
+        configStatus.textContent = '⚠️ Configuration not loaded!';
+        configDetails.textContent = 'ERROR: SCRIPT_INTEGRITY_CONFIG not found';
+        return;
+      }
+
+      if (!monitor) {
+        configStatus.className = 'status warning';
+        configStatus.textContent = '⚠️ Monitor not loaded!';
+        configDetails.textContent = 'ERROR: ScriptIntegrityMonitor not found';
+        return;
+      }
+
+      const serverUrl = config.serverBaseUrl;
+      const autoRegister = config.autoRegisterNewScripts;
+
+      if (!serverUrl) {
+        configStatus.className = 'status warning';
+        configStatus.textContent = '⚠️ Server URL not configured! Auto-registration will not work.';
+      } else if (autoRegister) {
+        configStatus.className = 'status success';
+        configStatus.textContent = `✅ Auto-registration enabled - Server: ${serverUrl}`;
+      } else {
+        configStatus.className = 'status warning';
+        configStatus.textContent = '⚠️ Auto-registration is disabled';
+      }
+
+      configDetails.textContent = JSON.stringify({
+        serverBaseUrl: serverUrl,
+        autoRegisterNewScripts: autoRegister,
+        registerEndpoint: config.registerScriptEndpoint,
+        checkStatusEndpoint: config.checkStatusEndpoint,
+        pollApprovalStatus: config.pollApprovalStatus,
+        pollInterval: config.pollInterval + 'ms',
+        mode: config.mode
+      }, null, 2);
+
+      console.log('✅ Configuration loaded successfully');
+      console.log('Server URL:', serverUrl);
+      console.log('Auto-registration:', autoRegister ? 'ENABLED' : 'DISABLED');
+    }
+
+    function refreshScriptList() {
+      const monitor = window.ScriptIntegrityMonitor;
+      if (!monitor) {
+        console.error('❌ Monitor not available');
+        return;
+      }
+
+      const inventory = monitor.getInventory();
+      const scriptList = document.getElementById('scriptList');
+
+      if (inventory.length === 0) {
+        scriptList.innerHTML = '<p style="color: #7f8c8d;">No scripts detected yet.</p>';
+        return;
+      }
+
+      const ul = document.createElement('ul');
+      ul.className = 'script-list';
+
+      inventory.forEach(script => {
+        const li = document.createElement('li');
+        li.className = `script-item ${script.status || 'unknown'}`;
+
+        li.innerHTML = `
+          <div class="script-url">${script.url || script.id}</div>
+          <div class="script-status">
+            Type: ${script.type || 'unknown'} |
+            Status: ${script.status || 'not registered'} |
+            Registered: ${script.registeredWithServer ? 'Yes' : 'No'}
+          </div>
+          <div class="script-hash">${script.hash}</div>
+        `;
+
+        ul.appendChild(li);
+      });
+
+      scriptList.innerHTML = '';
+      scriptList.appendChild(ul);
+
+      console.log(`📜 Displaying ${inventory.length} scripts`);
+    }
+
+    function loadTestScript() {
+      console.log('🧪 Loading test script...');
+
+      const script = document.createElement('script');
+      script.textContent = `
+        console.log('Test script loaded at ${new Date().toISOString()}');
+        window.testScriptLoaded = true;
+      `;
+      document.head.appendChild(script);
+
+      setTimeout(refreshScriptList, 1000);
+      addConsoleMessage('Test script added - Check admin panel for registration', 'success');
+    }
+
+    function loadJQueryFromCDN() {
+      if (window.jQuery) {
+        alert('jQuery is already loaded!');
+        return;
+      }
+
+      console.log('📦 Loading jQuery from CDN...');
+
+      const script = document.createElement('script');
+      script.src = 'https://code.jquery.com/jquery-3.7.1.min.js';
+      script.integrity = 'sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs';
+      script.crossOrigin = 'anonymous';
+      document.head.appendChild(script);
+
+      script.onload = () => {
+        console.log('✅ jQuery loaded successfully');
+        setTimeout(refreshScriptList, 1000);
+      };
+
+      script.onerror = () => {
+        console.error('❌ Failed to load jQuery');
+      };
+    }
+
+    function loadMaliciousScript() {
+      if (!confirm('This will load a script that violates integrity. Continue?')) {
+        return;
+      }
+
+      console.log('⚠️ Loading "malicious" script (integrity violation test)...');
+
+      const script = document.createElement('script');
+      script.textContent = `
+        console.warn('⚠️ This is a test "malicious" script');
+        window.maliciousScriptLoaded = true;
+      `;
+      document.head.appendChild(script);
+
+      setTimeout(refreshScriptList, 1000);
+      addConsoleMessage('Malicious script loaded - Should trigger violation alert', 'error');
+    }
+
+    async function checkServerConnection() {
+      const config = window.SCRIPT_INTEGRITY_CONFIG;
+      if (!config.serverBaseUrl) {
+        alert('Server URL not configured!');
+        return;
+      }
+
+      console.log('🔌 Testing server connection...');
+      addConsoleMessage('Testing server connection...', 'info');
+
+      try {
+        const response = await fetch(`${config.serverBaseUrl}/health`);
+        const data = await response.json();
+
+        if (response.ok) {
+          console.log('✅ Server is reachable:', data);
+          addConsoleMessage(`✅ Server OK: ${JSON.stringify(data)}`, 'success');
+          alert('Server connection successful!\n\n' + JSON.stringify(data, null, 2));
+        } else {
+          console.error('❌ Server returned error:', response.status);
+          addConsoleMessage(`❌ Server error: ${response.status}`, 'error');
+          alert('Server returned an error: ' + response.status);
+        }
+      } catch (error) {
+        console.error('❌ Cannot reach server:', error.message);
+        addConsoleMessage(`❌ Connection failed: ${error.message}`, 'error');
+        alert('Cannot connect to server!\n\nMake sure the server is running:\nnpm start\n\nError: ' + error.message);
+      }
+    }
+
+    // Auto-refresh script list every 10 seconds
+    setInterval(refreshScriptList, 10000);
+  </script>
+</body>
+</html>
