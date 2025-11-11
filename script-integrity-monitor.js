@@ -64,8 +64,8 @@
         batchAlerts: config.batchAlerts || false,
         batchInterval: config.batchInterval || 5000, // ms
 
-        // Debug mode
-        debug: config.debug || false
+        // Debug mode (enabled by default for visibility)
+        debug: config.debug !== false
       };
 
       // Script inventory: stores all detected scripts with metadata
@@ -728,30 +728,50 @@
      * @param {string} message - Log message
      * @param {string} level - Log level (debug, info, warn, error)
      */
-    log(message, level = 'info') {
+    log(message, level = 'info', data = null) {
       if (level === 'debug' && !this.config.debug) {
         return;
       }
 
-      const prefix = '[SIM]';
-      const timestamp = new Date().toISOString();
-      const formattedMessage = `${prefix} [${timestamp}] ${message}`;
+      const prefix = '🔒 [SIM]';
+      const timestamp = new Date().toISOString().split('T')[1].split('.')[0]; // HH:MM:SS
+
+      // Add emoji indicators for different message types
+      let emoji = '';
+      if (message.includes('API') || message.includes('server') || message.includes('register')) {
+        emoji = '🌐';
+      } else if (message.includes('violation') || message.includes('unauthorized')) {
+        emoji = '⚠️';
+      } else if (message.includes('approved') || message.includes('authorized')) {
+        emoji = '✅';
+      } else if (message.includes('new script') || message.includes('detected')) {
+        emoji = '🔍';
+      } else if (message.includes('polling') || message.includes('checking')) {
+        emoji = '🔄';
+      }
+
+      const formattedMessage = `${prefix} ${emoji} [${timestamp}] ${message}`;
 
       switch (level) {
         case 'debug':
-          console.debug(formattedMessage);
+          console.debug(formattedMessage, data || '');
           break;
         case 'info':
-          console.info(formattedMessage);
+          console.info(formattedMessage, data || '');
           break;
         case 'warn':
-          console.warn(formattedMessage);
+          console.warn(formattedMessage, data || '');
           break;
         case 'error':
-          console.error(formattedMessage);
+          console.error(formattedMessage, data || '');
           break;
         default:
-          console.log(formattedMessage);
+          console.log(formattedMessage, data || '');
+      }
+
+      // Log additional data if provided
+      if (data && this.config.debug) {
+        console.log('   └─ Data:', data);
       }
     }
 
@@ -767,11 +787,16 @@
      */
     async registerNewScript(scriptInfo) {
       if (!this.config.autoRegisterNewScripts || !this.config.serverBaseUrl) {
+        this.log('Auto-registration disabled', 'debug', {
+          autoRegisterNewScripts: this.config.autoRegisterNewScripts,
+          serverBaseUrl: this.config.serverBaseUrl
+        });
         return { registered: false, reason: 'auto-registration disabled' };
       }
 
       // Avoid duplicate registrations
       if (this.pendingRegistrations.has(scriptInfo.hash)) {
+        this.log(`Script already pending registration: ${scriptInfo.id}`, 'debug');
         return { registered: false, reason: 'already pending' };
       }
 
@@ -795,7 +820,12 @@
           })
         };
 
-        this.log(`Registering new script with server: ${scriptInfo.id}`, 'debug');
+        this.log(`📤 Sending registration request to server`, 'info', {
+          endpoint,
+          script: scriptInfo.id,
+          type: scriptInfo.inline ? 'inline' : 'external',
+          hash: scriptInfo.hash.substring(0, 20) + '...'
+        });
 
         const response = await this.makeServerRequest(endpoint, {
           method: 'POST',
@@ -808,7 +838,12 @@
 
         if (response.ok) {
           const result = await response.json();
-          this.log(`Script registered: ${scriptInfo.id}, Status: ${result.status}`, 'info');
+          this.log(`✅ Script registered successfully`, 'info', {
+            script: scriptInfo.id,
+            status: result.status,
+            scriptId: result.scriptId,
+            isNew: result.isNew
+          });
 
           // Store server status
           this.knownScripts.set(scriptInfo.hash, {
@@ -820,15 +855,24 @@
 
           // Start polling for approval if pending
           if (result.status === 'pending_approval' && this.config.pollApprovalStatus) {
+            this.log(`⏳ Script pending approval - starting status polling`, 'info', {
+              script: scriptInfo.id,
+              pollInterval: this.config.pollInterval + 'ms'
+            });
             this.startPollingForApproval(scriptInfo);
           }
 
           return { registered: true, result };
         } else {
-          throw new Error(`Server responded with ${response.status}`);
+          const errorText = await response.text();
+          throw new Error(`Server responded with ${response.status}: ${errorText}`);
         }
       } catch (error) {
-        this.log(`Failed to register script: ${error.message}`, 'error');
+        this.log(`❌ Failed to register script`, 'error', {
+          script: scriptInfo.id,
+          error: error.message,
+          endpoint: `${this.config.serverBaseUrl}${this.config.registerScriptEndpoint}`
+        });
         return { registered: false, error: error.message };
       } finally {
         this.pendingRegistrations.delete(scriptInfo.hash);
@@ -874,6 +918,7 @@
      */
     async reportViolationToServer(violation) {
       if (!this.config.serverBaseUrl) {
+        this.log('Cannot report violation - no server URL configured', 'debug');
         return false;
       }
 
@@ -896,6 +941,13 @@
           })
         };
 
+        this.log(`🚨 Reporting violation to server`, 'warn', {
+          endpoint,
+          script: violation.scriptId,
+          violationType: violation.violationType,
+          severity: 'HIGH'
+        });
+
         const response = await this.makeServerRequest(endpoint, {
           method: 'POST',
           headers: {
@@ -906,13 +958,18 @@
         });
 
         if (response.ok) {
-          this.log('Violation reported to server', 'debug');
+          const result = await response.json();
+          this.log('✅ Violation reported successfully', 'info', result);
           return true;
+        } else {
+          this.log(`❌ Server rejected violation report: ${response.status}`, 'warn');
+          return false;
         }
-
-        return false;
       } catch (error) {
-        this.log(`Failed to report violation: ${error.message}`, 'debug');
+        this.log(`❌ Failed to report violation to server`, 'error', {
+          error: error.message,
+          script: violation.scriptId
+        });
         return false;
       }
     }
