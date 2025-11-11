@@ -36,8 +36,9 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"], // Allow inline scripts for admin panel
-      styleSrc: ["'self'", "'unsafe-inline'"],  // Allow inline styles
+      scriptSrc: ["'self'", "'unsafe-inline'"],    // Allow inline scripts for admin panel
+      scriptSrcAttr: ["'unsafe-inline'"],          // Allow inline event handlers (onclick, etc.)
+      styleSrc: ["'self'", "'unsafe-inline'"],     // Allow inline styles
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'"],
       fontSrc: ["'self'"],
