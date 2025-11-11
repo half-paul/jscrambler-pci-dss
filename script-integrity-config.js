@@ -129,16 +129,24 @@
      */
 
     // Base URL for API endpoints
-    // Auto-detect: Uses window.location.origin if running on same domain as server
-    // Manual: Set to 'https://yourdomain.com' for different domain
+    // Auto-detect: Uses window.location.origin if running from server
+    // Manual: Set to 'https://yourdomain.com' if API is on different domain
     serverBaseUrl: (function() {
-      // Auto-detect if running on localhost or has /api endpoint
-      if (window.location.hostname === 'localhost' ||
-          window.location.hostname === '127.0.0.1' ||
-          window.location.port === '3000') {
+      // Auto-detect if page is served from the server (not file://)
+      if (window.location.protocol !== 'file:') {
+        // If on localhost:3000, use same origin
+        if ((window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+            window.location.port === '3000') {
+          return window.location.origin;  // http://localhost:3000
+        }
+        // If on localhost but different port, assume API is on :3000
+        if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+          return `${window.location.protocol}//${window.location.hostname}:3000`;
+        }
+        // For production domains, use same origin
         return window.location.origin;
       }
-      // For production, uncomment and set your domain:
+      // For production, manually set your domain:
       // return 'https://yourdomain.com';
       return null;
     })(),

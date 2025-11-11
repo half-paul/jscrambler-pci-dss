@@ -107,6 +107,20 @@
       this.log(`Mode: ${this.config.mode}`, 'info');
       this.log(`Hash Algorithm: ${this.config.hashAlgorithm}`, 'info');
 
+      // Log server integration status
+      if (this.config.serverBaseUrl) {
+        this.log(`✅ Server Integration: ENABLED`, 'info', {
+          serverBaseUrl: this.config.serverBaseUrl,
+          autoRegister: this.config.autoRegisterNewScripts,
+          pollApproval: this.config.pollApprovalStatus
+        });
+      } else {
+        this.log(`⚠️  Server Integration: DISABLED (no serverBaseUrl)`, 'warn', {
+          currentPage: window.location.href,
+          protocol: window.location.protocol
+        });
+      }
+
       // Check for Web Crypto API support
       if (!window.crypto || !window.crypto.subtle) {
         this.log('Web Crypto API not supported - monitoring disabled', 'error');
@@ -411,6 +425,7 @@
       } else {
         // Check server-side status first (if configured)
         if (this.config.serverBaseUrl) {
+          this.log(`Checking server status for: ${scriptInfo.id}`, 'debug');
           const serverStatus = await this.checkScriptStatus(scriptInfo.hash);
 
           if (serverStatus) {
@@ -430,11 +445,15 @@
           } else {
             // NEW SCRIPT - Not in baseline, not on server
             result.violation = 'NEW_SCRIPT';
-            this.log(`New script discovered: ${scriptInfo.id}`, 'info');
+            this.log(`🆕 New script discovered: ${scriptInfo.id}`, 'info');
 
             // Auto-register with server
             if (this.config.autoRegisterNewScripts) {
-              await this.registerNewScript(scriptInfo);
+              this.log(`🚀 Attempting auto-registration for: ${scriptInfo.id}`, 'info');
+              const regResult = await this.registerNewScript(scriptInfo);
+              this.log(`Registration result:`, 'debug', regResult);
+            } else {
+              this.log(`⚠️  Auto-registration disabled - script not registered`, 'warn');
             }
           }
         } else {
@@ -884,11 +903,14 @@
      */
     async checkScriptStatus(scriptHash) {
       if (!this.config.serverBaseUrl) {
+        this.log('Cannot check status - no server URL', 'debug');
         return null;
       }
 
       try {
         const endpoint = `${this.config.serverBaseUrl}${this.config.checkStatusEndpoint}/${scriptHash}`;
+
+        this.log(`Checking status: GET ${endpoint}`, 'debug');
 
         const response = await this.makeServerRequest(endpoint, {
           method: 'GET',
@@ -899,16 +921,21 @@
 
         if (response.ok) {
           const status = await response.json();
+          this.log(`✅ Status check success: ${status.status}`, 'debug', status);
           this.knownScripts.set(scriptHash, {
             ...status,
             checkedAt: Date.now()
           });
           return status;
+        } else {
+          this.log(`📭 Script not found on server (${response.status})`, 'debug');
+          return null;
         }
-
-        return null;
       } catch (error) {
-        this.log(`Failed to check script status: ${error.message}`, 'debug');
+        this.log(`❌ Failed to check script status: ${error.message}`, 'warn', {
+          error: error.message,
+          endpoint: `${this.config.serverBaseUrl}${this.config.checkStatusEndpoint}/${scriptHash}`
+        });
         return null;
       }
     }
