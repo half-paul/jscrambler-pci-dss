@@ -1,510 +1,728 @@
 /**
- * Server-Side Alert Handler for Script Integrity Monitor
+ * Enhanced Server-Side Alert Handler with Database Integration
  * PCI DSS v4.0 Requirement 6.4.3 Compliance
  *
- * Example implementation for receiving and processing script integrity violations
- * This example uses Node.js with Express, but can be adapted to any backend
- *
  * Features:
- * - Receives violation alerts from frontend monitor
- * - Validates and sanitizes alert data
- * - Logs to security monitoring system
- * - Triggers incident response for critical violations
- * - Stores violations in database for audit trail
- * - Sends notifications to security team
- * - Generates compliance reports
+ * - Database integration (SQLite/PostgreSQL)
+ * - Auto-discovery and registration workflow
+ * - Approval queue management
+ * - Integrity violation tracking
+ * - Admin authentication
+ * - Email/Slack notifications
+ * - Comprehensive API endpoints
  *
- * @version 1.0.0
+ * @version 2.0.0
  */
+
+'use strict';
+
+require('dotenv').config();
 
 const express = require('express');
+const helmet = require('helmet');
+const cors = require('cors');
+const rateLimit = require('express-rate-limit');
+const crypto = require('crypto');
+const { getDatabase } = require('./database-manager');
+
 const app = express();
 
-// Middleware
-app.use(express.json({ limit: '10mb' }));
+// ============================================================================
+// MIDDLEWARE
+// ============================================================================
 
-// Helmet for security headers
-const helmet = require('helmet');
+// Security headers
 app.use(helmet());
 
-// Rate limiting to prevent abuse
-const rateLimit = require('express-rate-limit');
-const alertLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many violation reports from this IP'
+// CORS configuration
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  credentials: true
+}));
+
+// Body parser
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Static files (for admin panel)
+app.use(express.static('public'));
+
+// Request logging
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
 });
 
-/**
- * Script Integrity Violation Handler
- * POST /api/security/script-violations
- *
- * Receives violation alerts from the frontend monitor
- */
-app.post('/api/security/script-violations', alertLimiter, async (req, res) => {
-  try {
-    const alert = req.body;
+// ============================================================================
+// RATE LIMITING
+// ============================================================================
 
-    // Validate alert data
-    if (!isValidAlert(alert)) {
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100,
+  message: 'Too many requests from this IP'
+});
+
+const registrationLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 200, // Max 200 script registrations per hour per session
+  keyGenerator: (req) => req.headers['x-session-id'] || req.ip,
+  message: 'Too many script registrations from this session'
+});
+
+const violationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  keyGenerator: (req) => req.headers['x-session-id'] || req.ip,
+  message: 'Too many violation reports from this session'
+});
+
+// ============================================================================
+// DATABASE INITIALIZATION
+// ============================================================================
+
+let db = null;
+
+async function initializeDatabase() {
+  try {
+    db = getDatabase({
+      type: process.env.DB_TYPE || 'sqlite',
+      sqlitePath: process.env.SQLITE_PATH || './data/integrity-monitor.db',
+      pgHost: process.env.PG_HOST,
+      pgPort: process.env.PG_PORT,
+      pgDatabase: process.env.PG_DATABASE,
+      pgUser: process.env.PG_USER,
+      pgPassword: process.env.PG_PASSWORD,
+      logQueries: process.env.LOG_QUERIES === 'true'
+    });
+
+    await db.initialize();
+    console.log('[Server] Database initialized successfully');
+  } catch (error) {
+    console.error('[Server] Database initialization failed:', error.message);
+    throw error;
+  }
+}
+
+// ============================================================================
+// AUTHENTICATION MIDDLEWARE
+// ============================================================================
+
+async function authenticate(req, res, next) {
+  const token = req.headers.authorization?.replace('Bearer ', '') ||
+                req.headers['x-api-token'];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  try {
+    // Verify token against database
+    const admin = await db.queryOne(
+      'SELECT * FROM admin_users WHERE api_token = ? AND is_active = 1',
+      [token]
+    );
+
+    if (!admin) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    // Check if account is locked
+    if (admin.locked_until && new Date(admin.locked_until) > new Date()) {
+      return res.status(403).json({ error: 'Account temporarily locked' });
+    }
+
+    // Attach admin to request
+    req.admin = admin;
+
+    // Update last login
+    await db.query(
+      'UPDATE admin_users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [admin.id]
+    );
+
+    next();
+  } catch (error) {
+    console.error('[Auth] Error:', error.message);
+    res.status(500).json({ error: 'Authentication error' });
+  }
+}
+
+// Permission check middleware
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!req.admin || !roles.includes(req.admin.role)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    next();
+  };
+}
+
+// ============================================================================
+// PUBLIC API ENDPOINTS (Client-Side Integration)
+// ============================================================================
+
+/**
+ * POST /api/scripts/register
+ * Register a newly discovered script
+ */
+app.post('/api/scripts/register', registrationLimiter, async (req, res) => {
+  try {
+    const {
+      url,
+      contentHash,
+      scriptType,
+      sizeBytes,
+      contentPreview,
+      pageUrl,
+      discoveryContext
+    } = req.body;
+
+    // Validate required fields
+    if (!url || !contentHash || !scriptType) {
       return res.status(400).json({
-        error: 'Invalid alert format',
-        received: false
+        error: 'Missing required fields',
+        required: ['url', 'contentHash', 'scriptType']
       });
     }
 
-    // Extract metadata
-    const metadata = {
-      userAgent: req.headers['user-agent'],
-      ip: req.ip || req.connection.remoteAddress,
-      timestamp: new Date(),
-      sessionId: req.headers['x-session-id'] || null,
-      userId: req.headers['x-user-id'] || null
-    };
+    // Register script in database
+    const result = await db.registerScript({
+      url,
+      contentHash,
+      scriptType,
+      sizeBytes,
+      contentPreview,
+      pageUrl,
+      discoveryContext
+    });
 
-    // Log to console (in production, use proper logging)
-    console.error('=== SCRIPT INTEGRITY VIOLATION ===');
-    console.error('Timestamp:', metadata.timestamp);
-    console.error('IP:', metadata.ip);
-    console.error('User Agent:', metadata.userAgent);
-    console.error('Alert:', JSON.stringify(alert, null, 2));
+    // Send notification if new script
+    if (result.isNew) {
+      await queueNotification({
+        type: 'email',
+        subject: 'New Script Pending Approval',
+        message: `A new script has been discovered and requires approval:\n\nURL: ${url}\nPage: ${pageUrl}\nHash: ${contentHash}`,
+        scriptId: result.scriptId
+      });
 
-    // Process based on severity
-    if (alert.severity === 'HIGH' || alert.severity === 'CRITICAL') {
-      await handleCriticalViolation(alert, metadata);
-    } else {
-      await handleStandardViolation(alert, metadata);
+      console.log(`[Registration] New script registered: ${url}`);
     }
 
-    // Log to security monitoring system
-    await logToSecuritySystem(alert, metadata);
-
-    // Store in database for audit trail
-    await storeViolation(alert, metadata);
-
-    // Send notifications
-    await sendNotifications(alert, metadata);
-
-    // Generate response
-    res.status(200).json({
-      received: true,
-      alertId: generateAlertId(alert, metadata),
-      timestamp: metadata.timestamp,
-      action: 'processed'
+    res.json({
+      success: true,
+      scriptId: result.scriptId,
+      status: result.status,
+      isNew: result.isNew
     });
 
   } catch (error) {
-    console.error('Error processing violation alert:', error);
-    res.status(500).json({
-      error: 'Failed to process alert',
-      received: false
-    });
+    console.error('[Registration] Error:', error.message);
+    res.status(500).json({ error: 'Registration failed', message: error.message });
   }
 });
 
 /**
- * Get violation statistics
- * GET /api/security/violations/stats
+ * GET /api/scripts/status/:hash
+ * Check approval status of a script by its hash
  */
-app.get('/api/security/violations/stats', async (req, res) => {
+app.get('/api/scripts/status/:hash', generalLimiter, async (req, res) => {
   try {
-    // In production, query from database
-    const stats = await getViolationStatistics();
+    const { hash } = req.params;
 
-    res.json(stats);
-  } catch (error) {
-    console.error('Error fetching statistics:', error);
-    res.status(500).json({ error: 'Failed to fetch statistics' });
-  }
-});
+    const script = await db.getScriptStatus(hash);
 
-/**
- * Get compliance report
- * GET /api/security/compliance/report
- */
-app.get('/api/security/compliance/report', async (req, res) => {
-  try {
-    const startDate = req.query.startDate ? new Date(req.query.startDate) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const endDate = req.query.endDate ? new Date(req.query.endDate) : new Date();
-
-    const report = await generateComplianceReport(startDate, endDate);
-
-    res.json(report);
-  } catch (error) {
-    console.error('Error generating compliance report:', error);
-    res.status(500).json({ error: 'Failed to generate report' });
-  }
-});
-
-/**
- * Validate alert structure
- */
-function isValidAlert(alert) {
-  if (!alert || typeof alert !== 'object') {
-    return false;
-  }
-
-  // Check required fields
-  const requiredFields = ['severity', 'title', 'message'];
-  for (const field of requiredFields) {
-    if (!(field in alert)) {
-      return false;
+    if (!script) {
+      return res.status(404).json({ error: 'Script not found' });
     }
+
+    res.json({
+      id: script.id,
+      url: script.url,
+      status: script.status,
+      approvedAt: script.approved_at
+    });
+
+  } catch (error) {
+    console.error('[Status Check] Error:', error.message);
+    res.status(500).json({ error: 'Status check failed' });
   }
-
-  // Validate severity
-  const validSeverities = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'];
-  if (!validSeverities.includes(alert.severity)) {
-    return false;
-  }
-
-  return true;
-}
-
-/**
- * Handle critical violations
- * Requires immediate attention and incident response
- */
-async function handleCriticalViolation(alert, metadata) {
-  console.error('=== CRITICAL VIOLATION - IMMEDIATE ACTION REQUIRED ===');
-
-  // Log to critical alerts channel
-  await logCriticalAlert(alert, metadata);
-
-  // Trigger incident response
-  await triggerIncidentResponse(alert, metadata);
-
-  // Send immediate notifications
-  await sendImmediateNotification(alert, metadata);
-
-  // In enforce mode, consider blocking user session
-  if (alert.action === 'BLOCKED') {
-    await blockUserSession(metadata.sessionId, metadata.ip);
-  }
-}
-
-/**
- * Handle standard violations
- */
-async function handleStandardViolation(alert, metadata) {
-  console.warn('Script integrity violation detected');
-
-  // Log to standard monitoring
-  await logStandardAlert(alert, metadata);
-
-  // Queue for review
-  await queueForReview(alert, metadata);
-}
-
-/**
- * Log to security monitoring system
- * Example: Splunk, ELK, Datadog, etc.
- */
-async function logToSecuritySystem(alert, metadata) {
-  // Example: Send to Splunk
-  // await splunkLogger.log({
-  //   sourcetype: 'script_integrity_violation',
-  //   event: {
-  //     severity: alert.severity,
-  //     violation: alert.violation,
-  //     metadata: metadata
-  //   }
-  // });
-
-  // Example: Send to ELK
-  // await elasticsearchClient.index({
-  //   index: 'security-violations',
-  //   body: {
-  //     type: 'script_integrity',
-  //     alert: alert,
-  //     metadata: metadata,
-  //     timestamp: new Date()
-  //   }
-  // });
-
-  console.log('[Security System] Alert logged');
-}
-
-/**
- * Store violation in database
- * Maintain audit trail for PCI DSS compliance
- */
-async function storeViolation(alert, metadata) {
-  // Example: MongoDB
-  // await db.collection('violations').insertOne({
-  //   alert: alert,
-  //   metadata: metadata,
-  //   createdAt: new Date(),
-  //   status: 'open',
-  //   reviewedAt: null,
-  //   reviewedBy: null,
-  //   resolution: null
-  // });
-
-  // Example: PostgreSQL
-  // await db.query(
-  //   `INSERT INTO script_violations
-  //    (severity, script_id, violation_type, user_agent, ip_address, created_at)
-  //    VALUES ($1, $2, $3, $4, $5, $6)`,
-  //   [
-  //     alert.severity,
-  //     alert.violation?.scriptId,
-  //     alert.violation?.violationType,
-  //     metadata.userAgent,
-  //     metadata.ip,
-  //     metadata.timestamp
-  //   ]
-  // );
-
-  console.log('[Database] Violation stored');
-}
-
-/**
- * Send notifications to security team
- */
-async function sendNotifications(alert, metadata) {
-  // Example: Send email for high severity
-  if (alert.severity === 'HIGH' || alert.severity === 'CRITICAL') {
-    // await emailService.send({
-    //   to: 'security-team@company.com',
-    //   subject: `[ALERT] Script Integrity Violation - ${alert.severity}`,
-    //   body: formatAlertEmail(alert, metadata)
-    // });
-  }
-
-  // Example: Send Slack notification
-  // await slackClient.sendMessage({
-  //   channel: '#security-alerts',
-  //   text: formatSlackMessage(alert, metadata)
-  // });
-
-  // Example: Send PagerDuty alert for critical
-  // if (alert.severity === 'CRITICAL') {
-  //   await pagerDuty.trigger({
-  //     incident_key: generateAlertId(alert, metadata),
-  //     description: alert.message,
-  //     details: { alert, metadata }
-  //   });
-  // }
-
-  console.log('[Notifications] Alerts sent');
-}
-
-/**
- * Log critical alert
- */
-async function logCriticalAlert(alert, metadata) {
-  console.error('[CRITICAL] Script integrity violation');
-  console.error('Script:', alert.violation?.scriptId);
-  console.error('Type:', alert.violation?.violationType);
-  console.error('IP:', metadata.ip);
-  console.error('User Agent:', metadata.userAgent);
-}
-
-/**
- * Trigger incident response
- */
-async function triggerIncidentResponse(alert, metadata) {
-  console.log('[Incident Response] Creating incident...');
-
-  // Example: Create incident in incident management system
-  // await incidentManagement.createIncident({
-  //   title: 'Script Integrity Violation',
-  //   severity: 'high',
-  //   category: 'security',
-  //   description: alert.message,
-  //   metadata: {
-  //     alert: alert,
-  //     context: metadata
-  //   }
-  // });
-}
-
-/**
- * Send immediate notification
- */
-async function sendImmediateNotification(alert, metadata) {
-  console.log('[Immediate Notification] Sending...');
-
-  // Example: SMS to on-call engineer
-  // await smsService.send({
-  //   to: '+1234567890',
-  //   message: `CRITICAL: Script integrity violation detected. Check security dashboard immediately.`
-  // });
-}
-
-/**
- * Block user session
- */
-async function blockUserSession(sessionId, ip) {
-  if (!sessionId && !ip) {
-    return;
-  }
-
-  console.log('[Session Block] Blocking session:', sessionId, 'IP:', ip);
-
-  // Example: Add to blocklist
-  // await redis.sadd('blocked_sessions', sessionId);
-  // await redis.sadd('blocked_ips', ip);
-  // await redis.expire('blocked_sessions', 3600); // 1 hour
-}
-
-/**
- * Log standard alert
- */
-async function logStandardAlert(alert, metadata) {
-  console.warn('[Standard Alert] Script violation logged');
-}
-
-/**
- * Queue for review
- */
-async function queueForReview(alert, metadata) {
-  console.log('[Review Queue] Alert queued for manual review');
-
-  // Example: Add to review queue
-  // await redis.lpush('violation_review_queue', JSON.stringify({
-  //   alert: alert,
-  //   metadata: metadata,
-  //   queuedAt: new Date()
-  // }));
-}
-
-/**
- * Generate unique alert ID
- */
-function generateAlertId(alert, metadata) {
-  const data = `${alert.violation?.scriptId}-${metadata.timestamp.getTime()}-${metadata.ip}`;
-  const crypto = require('crypto');
-  return crypto.createHash('sha256').update(data).digest('hex').substring(0, 16);
-}
-
-/**
- * Get violation statistics
- */
-async function getViolationStatistics() {
-  // Example: Query from database
-  // const totalViolations = await db.collection('violations').countDocuments();
-  // const last24Hours = await db.collection('violations').countDocuments({
-  //   createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
-  // });
-
-  return {
-    totalViolations: 0,
-    last24Hours: 0,
-    last7Days: 0,
-    last30Days: 0,
-    byType: {},
-    bySeverity: {},
-    topScripts: []
-  };
-}
-
-/**
- * Generate PCI DSS compliance report
- */
-async function generateComplianceReport(startDate, endDate) {
-  // Example: Query violations from database
-  // const violations = await db.collection('violations').find({
-  //   createdAt: { $gte: startDate, $lte: endDate }
-  // }).toArray();
-
-  return {
-    reportDate: new Date(),
-    period: {
-      start: startDate,
-      end: endDate
-    },
-    pciDssRequirement: '6.4.3',
-    summary: {
-      totalViolations: 0,
-      criticalViolations: 0,
-      highViolations: 0,
-      mediumViolations: 0,
-      lowViolations: 0
-    },
-    complianceStatus: 'COMPLIANT',
-    recommendations: [
-      'Continue monitoring for unauthorized scripts',
-      'Review and update baseline hashes regularly',
-      'Maintain script inventory documentation',
-      'Conduct quarterly security reviews'
-    ]
-  };
-}
-
-/**
- * Format alert email
- */
-function formatAlertEmail(alert, metadata) {
-  return `
-Script Integrity Violation Detected
-
-Severity: ${alert.severity}
-Title: ${alert.title}
-Message: ${alert.message}
-
-Violation Details:
-- Script: ${alert.violation?.scriptId || 'N/A'}
-- Type: ${alert.violation?.violationType || 'N/A'}
-- Timestamp: ${metadata.timestamp}
-
-Request Details:
-- IP Address: ${metadata.ip}
-- User Agent: ${metadata.userAgent}
-- Session ID: ${metadata.sessionId || 'N/A'}
-
-Action: ${alert.action || 'REPORTED'}
-
-Please review immediately and take appropriate action.
-
----
-This is an automated alert from the Script Integrity Monitoring system.
-  `.trim();
-}
-
-/**
- * Format Slack message
- */
-function formatSlackMessage(alert, metadata) {
-  return {
-    text: `Script Integrity Violation: ${alert.severity}`,
-    attachments: [
-      {
-        color: alert.severity === 'CRITICAL' || alert.severity === 'HIGH' ? 'danger' : 'warning',
-        fields: [
-          { title: 'Script', value: alert.violation?.scriptId || 'N/A', short: false },
-          { title: 'Type', value: alert.violation?.violationType || 'N/A', short: true },
-          { title: 'IP', value: metadata.ip, short: true },
-          { title: 'Action', value: alert.action || 'REPORTED', short: true }
-        ],
-        footer: 'Script Integrity Monitor',
-        ts: Math.floor(metadata.timestamp.getTime() / 1000)
-      }
-    ]
-  };
-}
-
-/**
- * Health check endpoint
- */
-app.get('/health', (req, res) => {
-  res.json({ status: 'healthy', service: 'script-integrity-alert-handler' });
 });
 
-// Error handling middleware
+/**
+ * POST /api/scripts/violation
+ * Report an integrity violation
+ */
+app.post('/api/scripts/violation', violationLimiter, async (req, res) => {
+  try {
+    const {
+      scriptUrl,
+      oldHash,
+      newHash,
+      violationType,
+      pageUrl,
+      userSession,
+      userAgent,
+      severity,
+      loadType,
+      context
+    } = req.body;
+
+    // Validate required fields
+    if (!scriptUrl || !newHash || !violationType) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['scriptUrl', 'newHash', 'violationType']
+      });
+    }
+
+    // Hash IP address for privacy
+    const ipAddress = hashIpAddress(req.ip);
+
+    // Find script ID if exists
+    const script = await db.queryOne(
+      'SELECT id FROM scripts WHERE url = ? LIMIT 1',
+      [scriptUrl]
+    );
+
+    // Log violation
+    const violationId = await db.logViolation({
+      scriptId: script?.id || null,
+      scriptUrl,
+      oldHash,
+      newHash,
+      violationType,
+      pageUrl,
+      userSession,
+      userAgent,
+      ipAddress,
+      severity,
+      loadType,
+      context
+    });
+
+    // Send alert for critical violations
+    if (severity === 'HIGH' || severity === 'CRITICAL') {
+      await queueNotification({
+        type: 'email',
+        subject: `${severity} Integrity Violation Detected`,
+        message: `Script integrity violation detected:\n\nScript: ${scriptUrl}\nType: ${violationType}\nPage: ${pageUrl}\nSeverity: ${severity}`,
+        violationId
+      });
+    }
+
+    console.log(`[Violation] ${severity} violation logged: ${scriptUrl} (${violationType})`);
+
+    res.json({
+      success: true,
+      violationId,
+      action: 'logged'
+    });
+
+  } catch (error) {
+    console.error('[Violation] Error:', error.message);
+    res.status(500).json({ error: 'Violation reporting failed' });
+  }
+});
+
+// ============================================================================
+// ADMIN API ENDPOINTS (Protected)
+// ============================================================================
+
+/**
+ * GET /api/admin/scripts/pending
+ * Get scripts pending approval
+ */
+app.get('/api/admin/scripts/pending', authenticate, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const scripts = await db.getPendingApprovals(limit, offset);
+
+    res.json({
+      success: true,
+      data: scripts,
+      count: scripts.length,
+      limit,
+      offset
+    });
+
+  } catch (error) {
+    console.error('[Admin] Error fetching pending scripts:', error.message);
+    res.status(500).json({ error: 'Failed to fetch pending scripts' });
+  }
+});
+
+/**
+ * POST /api/admin/scripts/:id/approve
+ * Approve a script
+ */
+app.post('/api/admin/scripts/:id/approve', authenticate, requireRole('reviewer', 'admin', 'super_admin'), async (req, res) => {
+  try {
+    const scriptId = parseInt(req.params.id);
+    const {
+      businessJustification,
+      scriptPurpose,
+      scriptOwner,
+      riskLevel,
+      approvalNotes
+    } = req.body;
+
+    // Validate required fields
+    if (!businessJustification || !scriptPurpose) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['businessJustification', 'scriptPurpose']
+      });
+    }
+
+    const success = await db.approveScript(scriptId, {
+      approvedBy: req.admin.username,
+      businessJustification,
+      scriptPurpose,
+      scriptOwner,
+      riskLevel: riskLevel || 'medium',
+      approvalNotes
+    });
+
+    if (!success) {
+      return res.status(404).json({ error: 'Script not found' });
+    }
+
+    console.log(`[Admin] Script ${scriptId} approved by ${req.admin.username}`);
+
+    res.json({
+      success: true,
+      message: 'Script approved successfully'
+    });
+
+  } catch (error) {
+    console.error('[Admin] Approval error:', error.message);
+    res.status(500).json({ error: 'Approval failed' });
+  }
+});
+
+/**
+ * POST /api/admin/scripts/:id/reject
+ * Reject a script
+ */
+app.post('/api/admin/scripts/:id/reject', authenticate, requireRole('reviewer', 'admin', 'super_admin'), async (req, res) => {
+  try {
+    const scriptId = parseInt(req.params.id);
+    const { rejectionReason, notes } = req.body;
+
+    if (!rejectionReason) {
+      return res.status(400).json({
+        error: 'Rejection reason is required'
+      });
+    }
+
+    const success = await db.rejectScript(scriptId, {
+      rejectedBy: req.admin.username,
+      rejectionReason,
+      notes
+    });
+
+    if (!success) {
+      return res.status(404).json({ error: 'Script not found' });
+    }
+
+    console.log(`[Admin] Script ${scriptId} rejected by ${req.admin.username}`);
+
+    res.json({
+      success: true,
+      message: 'Script rejected successfully'
+    });
+
+  } catch (error) {
+    console.error('[Admin] Rejection error:', error.message);
+    res.status(500).json({ error: 'Rejection failed' });
+  }
+});
+
+/**
+ * GET /api/admin/violations
+ * Get integrity violations
+ */
+app.get('/api/admin/violations', authenticate, async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = parseInt(req.query.offset) || 0;
+
+    const violations = await db.getRecentViolations(limit, offset);
+
+    res.json({
+      success: true,
+      data: violations,
+      count: violations.length,
+      limit,
+      offset
+    });
+
+  } catch (error) {
+    console.error('[Admin] Error fetching violations:', error.message);
+    res.status(500).json({ error: 'Failed to fetch violations' });
+  }
+});
+
+/**
+ * GET /api/admin/scripts/:id
+ * Get script details
+ */
+app.get('/api/admin/scripts/:id', authenticate, async (req, res) => {
+  try {
+    const scriptId = parseInt(req.params.id);
+    const script = await db.getScriptById(scriptId);
+
+    if (!script) {
+      return res.status(404).json({ error: 'Script not found' });
+    }
+
+    // Get audit log
+    const auditLog = await db.getScriptAuditLog(scriptId, 20);
+
+    res.json({
+      success: true,
+      script,
+      auditLog
+    });
+
+  } catch (error) {
+    console.error('[Admin] Error fetching script:', error.message);
+    res.status(500).json({ error: 'Failed to fetch script' });
+  }
+});
+
+/**
+ * POST /api/admin/violations/:id/review
+ * Update violation review status
+ */
+app.post('/api/admin/violations/:id/review', authenticate, requireRole('reviewer', 'admin', 'super_admin'), async (req, res) => {
+  try {
+    const violationId = parseInt(req.params.id);
+    const { reviewStatus, reviewNotes } = req.body;
+
+    const validStatuses = ['investigating', 'resolved', 'false_positive', 'confirmed_attack'];
+    if (!validStatuses.includes(reviewStatus)) {
+      return res.status(400).json({
+        error: 'Invalid review status',
+        validStatuses
+      });
+    }
+
+    const success = await db.updateViolationReview(violationId, {
+      reviewStatus,
+      reviewedBy: req.admin.username,
+      reviewNotes
+    });
+
+    if (!success) {
+      return res.status(404).json({ error: 'Violation not found' });
+    }
+
+    res.json({
+      success: true,
+      message: 'Violation review updated'
+    });
+
+  } catch (error) {
+    console.error('[Admin] Review error:', error.message);
+    res.status(500).json({ error: 'Review update failed' });
+  }
+});
+
+/**
+ * GET /api/admin/dashboard
+ * Get dashboard statistics
+ */
+app.get('/api/admin/dashboard', authenticate, async (req, res) => {
+  try {
+    const [complianceSummary, violationStats] = await Promise.all([
+      db.getComplianceSummary(),
+      db.getViolationStatistics()
+    ]);
+
+    res.json({
+      success: true,
+      compliance: complianceSummary,
+      violations: violationStats,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('[Admin] Dashboard error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch dashboard data' });
+  }
+});
+
+/**
+ * GET /api/admin/scripts/search
+ * Search scripts
+ */
+app.get('/api/admin/scripts/search', authenticate, async (req, res) => {
+  try {
+    const { q, status, type, limit, offset } = req.query;
+
+    const scripts = await db.searchScripts({
+      query: q,
+      status,
+      scriptType: type,
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+
+    res.json({
+      success: true,
+      data: scripts,
+      count: scripts.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Search error:', error.message);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+// ============================================================================
+// HEALTH CHECK & STATUS
+// ============================================================================
+
+app.get('/health', async (req, res) => {
+  const dbHealth = await db.healthCheck();
+
+  res.json({
+    status: dbHealth.healthy ? 'healthy' : 'unhealthy',
+    service: 'script-integrity-monitor-server',
+    version: '2.0.0',
+    database: dbHealth,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Hash IP address for privacy compliance
+ */
+function hashIpAddress(ip) {
+  return crypto.createHash('sha256').update(ip + process.env.IP_SALT || 'default-salt').digest('hex');
+}
+
+/**
+ * Queue notification for sending
+ */
+async function queueNotification(notification) {
+  try {
+    if (!db) return;
+
+    // Get notification settings from config
+    const emailConfig = await db.queryOne(
+      "SELECT value FROM system_config WHERE key = 'violation_alert_email'"
+    );
+
+    if (emailConfig?.value) {
+      await db.query(
+        `INSERT INTO notification_queue (
+          notification_type, recipient, subject, message, script_id, violation_id, priority
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [
+          notification.type || 'email',
+          emailConfig.value,
+          notification.subject,
+          notification.message,
+          notification.scriptId || null,
+          notification.violationId || null,
+          notification.priority || 'normal'
+        ]
+      );
+
+      console.log('[Notification] Queued:', notification.subject);
+    }
+  } catch (error) {
+    console.error('[Notification] Queue error:', error.message);
+  }
+}
+
+// ============================================================================
+// ERROR HANDLING
+// ============================================================================
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ error: 'Endpoint not found' });
+});
+
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error('Unhandled error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  console.error('[Server Error]', err);
+  res.status(500).json({
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
+
+// ============================================================================
+// SERVER STARTUP
+// ============================================================================
+
+const PORT = process.env.PORT || 3000;
+
+async function startServer() {
+  try {
+    // Initialize database
+    await initializeDatabase();
+
+    // Start Express server
+    app.listen(PORT, () => {
+      console.log('\n========================================');
+      console.log('Script Integrity Monitor Server');
+      console.log('========================================');
+      console.log(`Server running on port ${PORT}`);
+      console.log(`Database: ${db.config.type}`);
+      console.log('\nPublic API Endpoints:');
+      console.log(`  POST   http://localhost:${PORT}/api/scripts/register`);
+      console.log(`  GET    http://localhost:${PORT}/api/scripts/status/:hash`);
+      console.log(`  POST   http://localhost:${PORT}/api/scripts/violation`);
+      console.log('\nAdmin API Endpoints (require authentication):');
+      console.log(`  GET    http://localhost:${PORT}/api/admin/scripts/pending`);
+      console.log(`  POST   http://localhost:${PORT}/api/admin/scripts/:id/approve`);
+      console.log(`  POST   http://localhost:${PORT}/api/admin/scripts/:id/reject`);
+      console.log(`  GET    http://localhost:${PORT}/api/admin/violations`);
+      console.log(`  GET    http://localhost:${PORT}/api/admin/dashboard`);
+      console.log('\nAdmin Panel:');
+      console.log(`  http://localhost:${PORT}/admin-panel.html`);
+      console.log('\nHealth Check:');
+      console.log(`  GET    http://localhost:${PORT}/health`);
+      console.log('========================================\n');
+    });
+
+  } catch (error) {
+    console.error('Failed to start server:', error.message);
+    process.exit(1);
+  }
+}
+
+// Graceful shutdown
+process.on('SIGINT', async () => {
+  console.log('\n[Server] Shutting down gracefully...');
+  if (db) {
+    await db.close();
+  }
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  console.log('\n[Server] Shutting down gracefully...');
+  if (db) {
+    await db.close();
+  }
+  process.exit(0);
 });
 
 // Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`Script Integrity Alert Handler listening on port ${PORT}`);
-  console.log(`POST /api/security/script-violations - Receive violation alerts`);
-  console.log(`GET  /api/security/violations/stats - Get statistics`);
-  console.log(`GET  /api/security/compliance/report - Get compliance report`);
-});
+startServer();
 
 module.exports = app;

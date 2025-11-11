@@ -123,6 +123,35 @@
     // The monitor will send JSON payload with violation details
     alertEndpoint: null, // Example: 'https://yourdomain.com/api/security/script-violations'
 
+    /**
+     * Server Endpoints Configuration
+     * Configure endpoints for auto-discovery and approval workflow
+     */
+
+    // Base URL for API endpoints
+    serverBaseUrl: null, // Example: 'https://yourdomain.com' or 'http://localhost:3000'
+
+    // Auto-registration endpoint for newly discovered scripts
+    registerScriptEndpoint: '/api/scripts/register',
+
+    // Check script approval status endpoint
+    checkStatusEndpoint: '/api/scripts/status',
+
+    // Report integrity violation endpoint
+    reportViolationEndpoint: '/api/scripts/violation',
+
+    // Auto-registration mode
+    autoRegisterNewScripts: true,           // Automatically register new scripts with server
+
+    // Polling configuration for approval status
+    pollApprovalStatus: true,               // Poll server for approval status updates
+    pollInterval: 30000,                    // Poll every 30 seconds (30000ms)
+    pollTimeout: 300000,                    // Stop polling after 5 minutes (300000ms)
+
+    // Behavior when server is unreachable
+    fallbackMode: 'report',                 // 'report' or 'block' when server unavailable
+    serverTimeoutMs: 5000,                  // Timeout for server requests
+
     // Custom callback function for handling alerts
     // Receives alert object as parameter
     alertCallback: function(alert) {
@@ -189,6 +218,7 @@
       config.environment = 'production';
       config.debug = false;
       config.mode = 'enforce'; // Enable enforcement in production after testing
+      config.serverBaseUrl = 'https://yourdomain.com';
       config.alertEndpoint = 'https://yourdomain.com/api/security/script-violations';
     }
 
@@ -197,6 +227,7 @@
       config.environment = 'staging';
       config.debug = true;
       config.mode = 'report';
+      config.serverBaseUrl = 'https://staging.yourdomain.com';
       config.alertEndpoint = 'https://staging.yourdomain.com/api/security/script-violations';
     }
 
@@ -205,7 +236,8 @@
       config.environment = 'development';
       config.debug = true;
       config.mode = 'report';
-      config.alertEndpoint = null; // No alerts in development
+      config.serverBaseUrl = 'http://localhost:3000';
+      config.alertEndpoint = null; // Use serverBaseUrl endpoints in development
     }
 
     console.info('[SIM Config] Environment:', config.environment);

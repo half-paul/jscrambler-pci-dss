@@ -89,6 +89,12 @@
       // Initialization timestamp
       this.initTime = performance.now();
 
+      // NEW: Server-side integration
+      this.knownScripts = new Map();          // Map of hash -> server status
+      this.pendingRegistrations = new Set();  // Scripts awaiting server registration
+      this.pollTimers = new Map();            // Polling timers for pending scripts
+      this.sessionId = this.generateSessionId();
+
       // Initialize monitoring
       this.initialize();
     }
@@ -378,34 +384,68 @@
      * @param {Object} scriptInfo - Script information object
      * @returns {Object} Verification result
      */
-    verifyIntegrity(scriptInfo) {
+    async verifyIntegrity(scriptInfo) {
       const result = {
         authorized: false,
-        violation: null
+        violation: null,
+        serverStatus: null
       };
 
       // Check if script has baseline hash
       const baselineHash = this.config.baselineHashes[scriptInfo.id];
 
       if (baselineHash) {
-        // Compare calculated hash with baseline
+        // KNOWN SCRIPT: Compare calculated hash with baseline
         if (scriptInfo.hash === baselineHash) {
           result.authorized = true;
+          result.violation = null;
           this.log(`Hash match for ${scriptInfo.id}`, 'debug');
         } else {
+          // KNOWN SCRIPT WITH CHANGED INTEGRITY
           result.violation = 'HASH_MISMATCH';
+          result.expectedHash = baselineHash;
           this.log(`Hash mismatch for ${scriptInfo.id}`, 'warn');
           this.log(`  Expected: ${baselineHash}`, 'warn');
           this.log(`  Got: ${scriptInfo.hash}`, 'warn');
         }
       } else {
-        // Check if script source is whitelisted
-        if (scriptInfo.src && this.isWhitelisted(scriptInfo.src)) {
-          result.authorized = true;
-          this.log(`Whitelisted source: ${scriptInfo.src}`, 'debug');
+        // Check server-side status first (if configured)
+        if (this.config.serverBaseUrl) {
+          const serverStatus = await this.checkScriptStatus(scriptInfo.hash);
+
+          if (serverStatus) {
+            result.serverStatus = serverStatus.status;
+
+            if (serverStatus.status === 'approved') {
+              result.authorized = true;
+              this.log(`Script approved on server: ${scriptInfo.id}`, 'info');
+            } else if (serverStatus.status === 'rejected') {
+              result.violation = 'REJECTED_BY_ADMIN';
+              this.log(`Script rejected by admin: ${scriptInfo.id}`, 'warn');
+            } else if (serverStatus.status === 'pending_approval') {
+              // NEW SCRIPT PENDING APPROVAL
+              result.violation = 'PENDING_APPROVAL';
+              this.log(`Script pending approval: ${scriptInfo.id}`, 'info');
+            }
+          } else {
+            // NEW SCRIPT - Not in baseline, not on server
+            result.violation = 'NEW_SCRIPT';
+            this.log(`New script discovered: ${scriptInfo.id}`, 'info');
+
+            // Auto-register with server
+            if (this.config.autoRegisterNewScripts) {
+              await this.registerNewScript(scriptInfo);
+            }
+          }
         } else {
-          result.violation = 'NO_BASELINE_HASH';
-          this.log(`No baseline hash for ${scriptInfo.id}`, 'warn');
+          // No server integration - check whitelist
+          if (scriptInfo.src && this.isWhitelisted(scriptInfo.src)) {
+            result.authorized = true;
+            this.log(`Whitelisted source: ${scriptInfo.src}`, 'debug');
+          } else {
+            result.violation = 'NO_BASELINE_HASH';
+            this.log(`No baseline hash for ${scriptInfo.id}`, 'warn');
+          }
         }
       }
 
@@ -437,7 +477,7 @@
      * Handle integrity violation
      * @param {Object} scriptInfo - Script information object
      */
-    handleViolation(scriptInfo) {
+    async handleViolation(scriptInfo) {
       const violation = {
         timestamp: Date.now(),
         scriptId: scriptInfo.id,
@@ -446,6 +486,7 @@
         violationType: scriptInfo.violation,
         loadType: scriptInfo.loadType,
         hash: scriptInfo.hash,
+        expectedHash: scriptInfo.expectedHash || null,
         context: scriptInfo.context
       };
 
@@ -456,11 +497,16 @@
         console.error('[SIM] INTEGRITY VIOLATION DETECTED:', violation);
       }
 
+      // Report to server (if configured)
+      if (this.config.serverBaseUrl && scriptInfo.violation !== 'PENDING_APPROVAL' && scriptInfo.violation !== 'NEW_SCRIPT') {
+        await this.reportViolationToServer(violation);
+      }
+
       // Prepare alert
       const alert = {
-        severity: 'HIGH',
+        severity: this.getViolationSeverity(scriptInfo.violation),
         title: 'Script Integrity Violation',
-        message: `Unauthorized script detected: ${scriptInfo.id}`,
+        message: this.getViolationMessage(scriptInfo),
         violation: violation,
         inventory: this.getInventorySummary()
       };
@@ -479,6 +525,41 @@
       } else {
         this.sendAlert(alert);
       }
+    }
+
+    /**
+     * Get severity level for violation type
+     */
+    getViolationSeverity(violationType) {
+      const severityMap = {
+        'HASH_MISMATCH': 'CRITICAL',
+        'SRI_MISMATCH': 'CRITICAL',
+        'REJECTED_BY_ADMIN': 'HIGH',
+        'NO_BASELINE_HASH': 'HIGH',
+        'UNAUTHORIZED_SCRIPT': 'HIGH',
+        'PENDING_APPROVAL': 'MEDIUM',
+        'NEW_SCRIPT': 'MEDIUM',
+        'PROCESSING_ERROR': 'LOW'
+      };
+
+      return severityMap[violationType] || 'HIGH';
+    }
+
+    /**
+     * Get human-readable violation message
+     */
+    getViolationMessage(scriptInfo) {
+      const messages = {
+        'HASH_MISMATCH': `Known script has been modified: ${scriptInfo.id}`,
+        'SRI_MISMATCH': `SRI attribute mismatch for: ${scriptInfo.id}`,
+        'REJECTED_BY_ADMIN': `Admin rejected script: ${scriptInfo.id}`,
+        'NO_BASELINE_HASH': `Unauthorized script (no baseline): ${scriptInfo.id}`,
+        'PENDING_APPROVAL': `Script awaiting approval: ${scriptInfo.id}`,
+        'NEW_SCRIPT': `New script discovered: ${scriptInfo.id}`,
+        'PROCESSING_ERROR': `Error processing script: ${scriptInfo.id}`
+      };
+
+      return messages[scriptInfo.violation] || `Integrity violation: ${scriptInfo.id}`;
     }
 
     /**
@@ -675,12 +756,254 @@
     }
 
     /**
+     * Generate unique session ID
+     */
+    generateSessionId() {
+      return `session-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`;
+    }
+
+    /**
+     * NEW: Register newly discovered script with server
+     */
+    async registerNewScript(scriptInfo) {
+      if (!this.config.autoRegisterNewScripts || !this.config.serverBaseUrl) {
+        return { registered: false, reason: 'auto-registration disabled' };
+      }
+
+      // Avoid duplicate registrations
+      if (this.pendingRegistrations.has(scriptInfo.hash)) {
+        return { registered: false, reason: 'already pending' };
+      }
+
+      this.pendingRegistrations.add(scriptInfo.hash);
+
+      try {
+        const endpoint = `${this.config.serverBaseUrl}${this.config.registerScriptEndpoint}`;
+
+        const payload = {
+          url: scriptInfo.id,
+          contentHash: scriptInfo.hash,
+          scriptType: scriptInfo.inline ? 'inline' : 'external',
+          sizeBytes: scriptInfo.content ? scriptInfo.content.length : 0,
+          contentPreview: scriptInfo.content ? scriptInfo.content.substring(0, 500) : null,
+          pageUrl: window.location.href,
+          discoveryContext: JSON.stringify({
+            loadType: scriptInfo.loadType,
+            timestamp: scriptInfo.timestamp,
+            userAgent: navigator.userAgent,
+            sessionId: this.sessionId
+          })
+        };
+
+        this.log(`Registering new script with server: ${scriptInfo.id}`, 'debug');
+
+        const response = await this.makeServerRequest(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Session-ID': this.sessionId
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          const result = await response.json();
+          this.log(`Script registered: ${scriptInfo.id}, Status: ${result.status}`, 'info');
+
+          // Store server status
+          this.knownScripts.set(scriptInfo.hash, {
+            scriptId: result.scriptId,
+            status: result.status,
+            isNew: result.isNew,
+            registeredAt: Date.now()
+          });
+
+          // Start polling for approval if pending
+          if (result.status === 'pending_approval' && this.config.pollApprovalStatus) {
+            this.startPollingForApproval(scriptInfo);
+          }
+
+          return { registered: true, result };
+        } else {
+          throw new Error(`Server responded with ${response.status}`);
+        }
+      } catch (error) {
+        this.log(`Failed to register script: ${error.message}`, 'error');
+        return { registered: false, error: error.message };
+      } finally {
+        this.pendingRegistrations.delete(scriptInfo.hash);
+      }
+    }
+
+    /**
+     * NEW: Check script approval status with server
+     */
+    async checkScriptStatus(scriptHash) {
+      if (!this.config.serverBaseUrl) {
+        return null;
+      }
+
+      try {
+        const endpoint = `${this.config.serverBaseUrl}${this.config.checkStatusEndpoint}/${scriptHash}`;
+
+        const response = await this.makeServerRequest(endpoint, {
+          method: 'GET',
+          headers: {
+            'X-Session-ID': this.sessionId
+          }
+        });
+
+        if (response.ok) {
+          const status = await response.json();
+          this.knownScripts.set(scriptHash, {
+            ...status,
+            checkedAt: Date.now()
+          });
+          return status;
+        }
+
+        return null;
+      } catch (error) {
+        this.log(`Failed to check script status: ${error.message}`, 'debug');
+        return null;
+      }
+    }
+
+    /**
+     * NEW: Report integrity violation to server
+     */
+    async reportViolationToServer(violation) {
+      if (!this.config.serverBaseUrl) {
+        return false;
+      }
+
+      try {
+        const endpoint = `${this.config.serverBaseUrl}${this.config.reportViolationEndpoint}`;
+
+        const payload = {
+          scriptUrl: violation.scriptId,
+          oldHash: violation.expectedHash || null,
+          newHash: violation.hash,
+          violationType: violation.violationType,
+          pageUrl: window.location.href,
+          userSession: this.sessionId,
+          userAgent: navigator.userAgent,
+          severity: 'HIGH',
+          loadType: violation.loadType,
+          context: JSON.stringify({
+            timestamp: violation.timestamp,
+            inline: violation.inline
+          })
+        };
+
+        const response = await this.makeServerRequest(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Session-ID': this.sessionId
+          },
+          body: JSON.stringify(payload)
+        });
+
+        if (response.ok) {
+          this.log('Violation reported to server', 'debug');
+          return true;
+        }
+
+        return false;
+      } catch (error) {
+        this.log(`Failed to report violation: ${error.message}`, 'debug');
+        return false;
+      }
+    }
+
+    /**
+     * NEW: Start polling for script approval status
+     */
+    startPollingForApproval(scriptInfo) {
+      const startTime = Date.now();
+      const pollInterval = this.config.pollInterval || 30000;
+      const pollTimeout = this.config.pollTimeout || 300000;
+
+      const pollTimer = setInterval(async () => {
+        // Check if timeout reached
+        if (Date.now() - startTime > pollTimeout) {
+          this.log(`Polling timeout for script: ${scriptInfo.id}`, 'warn');
+          clearInterval(pollTimer);
+          this.pollTimers.delete(scriptInfo.hash);
+          return;
+        }
+
+        // Check status
+        const status = await this.checkScriptStatus(scriptInfo.hash);
+
+        if (status && status.status !== 'pending_approval') {
+          this.log(`Script status updated: ${scriptInfo.id} -> ${status.status}`, 'info');
+          clearInterval(pollTimer);
+          this.pollTimers.delete(scriptInfo.hash);
+
+          // Update script inventory
+          const inventoryItem = this.scriptInventory.find(s => s.hash === scriptInfo.hash);
+          if (inventoryItem) {
+            inventoryItem.serverStatus = status.status;
+            inventoryItem.authorized = status.status === 'approved';
+          }
+
+          // Trigger callback if approved
+          if (status.status === 'approved' && this.config.alertCallback) {
+            this.config.alertCallback({
+              type: 'script_approved',
+              script: scriptInfo,
+              status: status
+            });
+          }
+        }
+      }, pollInterval);
+
+      this.pollTimers.set(scriptInfo.hash, pollTimer);
+    }
+
+    /**
+     * NEW: Make server request with timeout
+     */
+    async makeServerRequest(url, options = {}) {
+      const timeout = this.config.serverTimeoutMs || 5000;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+      try {
+        const response = await fetch(url, {
+          ...options,
+          signal: controller.signal,
+          credentials: 'same-origin'
+        });
+
+        clearTimeout(timeoutId);
+        return response;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          throw new Error('Request timeout');
+        }
+        throw error;
+      }
+    }
+
+    /**
      * Cleanup and stop monitoring
      */
     destroy() {
       if (this.observer) {
         this.observer.disconnect();
       }
+
+      // Clear all polling timers
+      for (const timer of this.pollTimers.values()) {
+        clearInterval(timer);
+      }
+      this.pollTimers.clear();
+
       this.flushPendingAlerts();
       this.log('Script Integrity Monitor destroyed', 'info');
     }

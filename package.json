@@ -6,6 +6,8 @@
   "scripts": {
     "start": "node server-alert-handler.js",
     "dev": "nodemon server-alert-handler.js",
+    "db:init": "node scripts/init-database.js",
+    "db:seed": "node scripts/seed-database.js",
     "test": "echo \"Open test-script-integrity.html in a browser to run tests\"",
     "generate-hashes": "node scripts/generate-hashes.js"
   },
@@ -23,7 +25,13 @@
   "dependencies": {
     "express": "^4.18.2",
     "helmet": "^7.1.0",
-    "express-rate-limit": "^7.1.5"
+    "express-rate-limit": "^7.1.5",
+    "better-sqlite3": "^9.2.2",
+    "pg": "^8.11.3",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "nodemailer": "^6.9.7"
   },
   "devDependencies": {
     "nodemon": "^3.0.2"

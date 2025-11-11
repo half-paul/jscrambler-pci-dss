@@ -1,0 +1,775 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Script Integrity Monitor - Admin Panel</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: #f5f7fa;
+            color: #2c3e50;
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+
+        .subtitle {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .auth-section {
+            background: #fff;
+            padding: 40px;
+            border-radius: 8px;
+            max-width: 400px;
+            margin: 100px auto;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #2c3e50;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #dfe6e9;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+
+        button {
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #2980b9;
+        }
+
+        button.secondary {
+            background: #95a5a6;
+        }
+
+        button.secondary:hover {
+            background: #7f8c8d;
+        }
+
+        button.danger {
+            background: #e74c3c;
+        }
+
+        button.danger:hover {
+            background: #c0392b;
+        }
+
+        button.success {
+            background: #27ae60;
+        }
+
+        button.success:hover {
+            background: #229954;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            color: #7f8c8d;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #ecf0f1;
+        }
+
+        .tab {
+            padding: 12px 24px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: #7f8c8d;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -2px;
+        }
+
+        .tab.active {
+            color: #3498db;
+            border-bottom-color: #3498db;
+        }
+
+        .content-section {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .content-section.active {
+            display: block;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th, td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ecf0f1;
+        }
+
+        th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+
+        tr:hover {
+            background: #f8f9fa;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+
+        .badge.pending {
+            background: #ffeaa7;
+            color: #d63031;
+        }
+
+        .badge.approved {
+            background: #d4edda;
+            color: #155724;
+        }
+
+        .badge.rejected {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .badge.high {
+            background: #f8d7da;
+            color: #721c24;
+        }
+
+        .badge.medium {
+            background: #fff3cd;
+            color: #856404;
+        }
+
+        .badge.low {
+            background: #d1ecf1;
+            color: #0c5460;
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            z-index: 1000;
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            max-width: 600px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            margin-bottom: 20px;
+        }
+
+        .modal-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        .error-message {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .success-message {
+            background: #d4edda;
+            color: #155724;
+            padding: 12px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #7f8c8d;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #7f8c8d;
+        }
+
+        .empty-state h3 {
+            margin-bottom: 10px;
+        }
+
+        .action-buttons {
+            display: flex;
+            gap: 8px;
+        }
+
+        .action-buttons button {
+            font-size: 12px;
+            padding: 6px 12px;
+        }
+
+        .code-preview {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            overflow-x: auto;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .info-grid {
+            display: grid;
+            grid-template-columns: 150px 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: #7f8c8d;
+        }
+
+        .logout-btn {
+            float: right;
+        }
+    </style>
+</head>
+<body>
+    <!-- Authentication Section -->
+    <div id="authSection" class="auth-section">
+        <h2 style="margin-bottom: 20px;">Admin Login</h2>
+        <div id="authError" class="error-message" style="display:none;"></div>
+        <div class="form-group">
+            <label for="apiToken">API Token</label>
+            <input type="password" id="apiToken" placeholder="Enter your API token">
+        </div>
+        <button onclick="login()" style="width: 100%;">Login</button>
+        <p style="margin-top: 15px; font-size: 12px; color: #7f8c8d;">
+            Default token: demo-token-12345
+        </p>
+    </div>
+
+    <!-- Main Dashboard (hidden until authenticated) -->
+    <div id="mainDashboard" style="display: none;">
+        <div class="container">
+            <header>
+                <h1>Script Integrity Monitor</h1>
+                <p class="subtitle">PCI DSS v4.0 Requirement 6.4.3 Compliance Dashboard</p>
+                <button class="logout-btn secondary" onclick="logout()">Logout</button>
+            </header>
+
+            <!-- Statistics Dashboard -->
+            <div class="dashboard" id="statsContainer">
+                <div class="stat-card">
+                    <h3>Total Scripts</h3>
+                    <div class="stat-value" id="totalScripts">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Pending Approval</h3>
+                    <div class="stat-value" id="pendingScripts" style="color: #f39c12;">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Approved Scripts</h3>
+                    <div class="stat-value" id="approvedScripts" style="color: #27ae60;">-</div>
+                </div>
+                <div class="stat-card">
+                    <h3>Violations</h3>
+                    <div class="stat-value" id="totalViolations" style="color: #e74c3c;">-</div>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="tabs">
+                <button class="tab active" onclick="showTab('pending')">Pending Approvals</button>
+                <button class="tab" onclick="showTab('violations')">Violations</button>
+                <button class="tab" onclick="showTab('inventory')">Script Inventory</button>
+            </div>
+
+            <!-- Pending Approvals Tab -->
+            <div id="pending" class="content-section active">
+                <h2 style="margin-bottom: 20px;">Scripts Pending Approval</h2>
+                <div id="pendingContent" class="loading">Loading...</div>
+            </div>
+
+            <!-- Violations Tab -->
+            <div id="violations" class="content-section">
+                <h2 style="margin-bottom: 20px;">Integrity Violations</h2>
+                <div id="violationsContent" class="loading">Loading...</div>
+            </div>
+
+            <!-- Inventory Tab -->
+            <div id="inventory" class="content-section">
+                <h2 style="margin-bottom: 20px;">Script Inventory</h2>
+                <div id="inventoryContent" class="loading">Loading...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approval Modal -->
+    <div id="approvalModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Approve Script</h2>
+            </div>
+            <div id="approvalError" class="error-message" style="display:none;"></div>
+            <div class="info-grid">
+                <div class="info-label">URL:</div>
+                <div id="modalUrl">-</div>
+                <div class="info-label">Hash:</div>
+                <div id="modalHash" style="word-break: break-all; font-size: 12px;">-</div>
+                <div class="info-label">Type:</div>
+                <div id="modalType">-</div>
+                <div class="info-label">First Seen:</div>
+                <div id="modalFirstSeen">-</div>
+            </div>
+            <div class="form-group">
+                <label for="businessJustification">Business Justification *</label>
+                <textarea id="businessJustification" rows="3" required></textarea>
+            </div>
+            <div class="form-group">
+                <label for="scriptPurpose">Script Purpose *</label>
+                <input type="text" id="scriptPurpose" required>
+            </div>
+            <div class="form-group">
+                <label for="scriptOwner">Script Owner</label>
+                <input type="text" id="scriptOwner">
+            </div>
+            <div class="form-group">
+                <label for="riskLevel">Risk Level</label>
+                <select id="riskLevel">
+                    <option value="low">Low</option>
+                    <option value="medium" selected>Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="approvalNotes">Notes</label>
+                <textarea id="approvalNotes" rows="2"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="success" onclick="submitApproval()">Approve</button>
+                <button class="secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rejection Modal -->
+    <div id="rejectionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Reject Script</h2>
+            </div>
+            <div id="rejectionError" class="error-message" style="display:none;"></div>
+            <div class="info-grid">
+                <div class="info-label">URL:</div>
+                <div id="rejectModalUrl">-</div>
+            </div>
+            <div class="form-group">
+                <label for="rejectionReason">Rejection Reason *</label>
+                <textarea id="rejectionReason" rows="3" required></textarea>
+            </div>
+            <div class="form-group">
+                <label for="rejectionNotes">Additional Notes</label>
+                <textarea id="rejectionNotes" rows="2"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="danger" onclick="submitRejection()">Reject</button>
+                <button class="secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const API_BASE = window.location.origin;
+        let authToken = localStorage.getItem('adminToken');
+        let currentScript = null;
+
+        // Authentication
+        function login() {
+            const token = document.getElementById('apiToken').value;
+            if (!token) {
+                showError('authError', 'Please enter your API token');
+                return;
+            }
+
+            authToken = token;
+            localStorage.setItem('adminToken', token);
+
+            // Test the token
+            fetchDashboard().then(() => {
+                document.getElementById('authSection').style.display = 'none';
+                document.getElementById('mainDashboard').style.display = 'block';
+                loadData();
+            }).catch(err => {
+                authToken = null;
+                localStorage.removeItem('adminToken');
+                showError('authError', 'Invalid token');
+            });
+        }
+
+        function logout() {
+            authToken = null;
+            localStorage.removeItem('adminToken');
+            document.getElementById('authSection').style.display = 'block';
+            document.getElementById('mainDashboard').style.display = 'none';
+        }
+
+        // API Calls
+        async function apiCall(endpoint, options = {}) {
+            const response = await fetch(`${API_BASE}${endpoint}`, {
+                ...options,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Token': authToken,
+                    ...options.headers
+                }
+            });
+
+            if (response.status === 401) {
+                logout();
+                throw new Error('Authentication required');
+            }
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.error || 'Request failed');
+            }
+
+            return response.json();
+        }
+
+        // Data Loading
+        async function fetchDashboard() {
+            const data = await apiCall('/api/admin/dashboard');
+
+            document.getElementById('totalScripts').textContent = data.compliance?.total_scripts || 0;
+            document.getElementById('pendingScripts').textContent = data.compliance?.pending_scripts || 0;
+            document.getElementById('approvedScripts').textContent = data.compliance?.approved_scripts || 0;
+            document.getElementById('totalViolations').textContent = data.violations?.total_violations || 0;
+        }
+
+        async function fetchPendingScripts() {
+            const data = await apiCall('/api/admin/scripts/pending');
+            renderPendingScripts(data.data || []);
+        }
+
+        async function fetchViolations() {
+            const data = await apiCall('/api/admin/violations');
+            renderViolations(data.data || []);
+        }
+
+        function renderPendingScripts(scripts) {
+            const container = document.getElementById('pendingContent');
+
+            if (scripts.length === 0) {
+                container.innerHTML = '<div class="empty-state"><h3>No pending approvals</h3><p>All scripts have been reviewed</p></div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>URL</th>
+                            <th>Type</th>
+                            <th>First Seen</th>
+                            <th>Page</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${scripts.map(script => `
+                            <tr>
+                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${script.url}</td>
+                                <td><span class="badge">${script.script_type}</span></td>
+                                <td>${new Date(script.first_seen).toLocaleString()}</td>
+                                <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${script.page_url}</td>
+                                <td>
+                                    <div class="action-buttons">
+                                        <button class="success" onclick="openApprovalModal(${script.id}, '${escapeHtml(script.url)}', '${script.content_hash}', '${script.script_type}', '${script.first_seen}')">Approve</button>
+                                        <button class="danger" onclick="openRejectionModal(${script.id}, '${escapeHtml(script.url)}')">Reject</button>
+                                    </div>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        function renderViolations(violations) {
+            const container = document.getElementById('violationsContent');
+
+            if (violations.length === 0) {
+                container.innerHTML = '<div class="empty-state"><h3>No violations</h3><p>System is operating normally</p></div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Script</th>
+                            <th>Type</th>
+                            <th>Severity</th>
+                            <th>Detected</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${violations.map(v => `
+                            <tr>
+                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${v.script_url}</td>
+                                <td>${v.violation_type}</td>
+                                <td><span class="badge ${v.severity?.toLowerCase()}">${v.severity}</span></td>
+                                <td>${new Date(v.detected_at).toLocaleString()}</td>
+                                <td><span class="badge ${v.review_status}">${v.review_status}</span></td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+        }
+
+        // Modals
+        function openApprovalModal(id, url, hash, type, firstSeen) {
+            currentScript = id;
+            document.getElementById('modalUrl').textContent = url;
+            document.getElementById('modalHash').textContent = hash;
+            document.getElementById('modalType').textContent = type;
+            document.getElementById('modalFirstSeen').textContent = new Date(firstSeen).toLocaleString();
+
+            // Clear form
+            document.getElementById('businessJustification').value = '';
+            document.getElementById('scriptPurpose').value = '';
+            document.getElementById('scriptOwner').value = '';
+            document.getElementById('approvalNotes').value = '';
+            document.getElementById('approvalError').style.display = 'none';
+
+            document.getElementById('approvalModal').classList.add('active');
+        }
+
+        function openRejectionModal(id, url) {
+            currentScript = id;
+            document.getElementById('rejectModalUrl').textContent = url;
+
+            document.getElementById('rejectionReason').value = '';
+            document.getElementById('rejectionNotes').value = '';
+            document.getElementById('rejectionError').style.display = 'none';
+
+            document.getElementById('rejectionModal').classList.add('active');
+        }
+
+        function closeModal() {
+            document.getElementById('approvalModal').classList.remove('active');
+            document.getElementById('rejectionModal').classList.remove('active');
+            currentScript = null;
+        }
+
+        async function submitApproval() {
+            const businessJustification = document.getElementById('businessJustification').value;
+            const scriptPurpose = document.getElementById('scriptPurpose').value;
+
+            if (!businessJustification || !scriptPurpose) {
+                showError('approvalError', 'Please fill in all required fields');
+                return;
+            }
+
+            try {
+                await apiCall(`/api/admin/scripts/${currentScript}/approve`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        businessJustification,
+                        scriptPurpose,
+                        scriptOwner: document.getElementById('scriptOwner').value,
+                        riskLevel: document.getElementById('riskLevel').value,
+                        approvalNotes: document.getElementById('approvalNotes').value
+                    })
+                });
+
+                closeModal();
+                loadData();
+            } catch (err) {
+                showError('approvalError', err.message);
+            }
+        }
+
+        async function submitRejection() {
+            const rejectionReason = document.getElementById('rejectionReason').value;
+
+            if (!rejectionReason) {
+                showError('rejectionError', 'Please provide a rejection reason');
+                return;
+            }
+
+            try {
+                await apiCall(`/api/admin/scripts/${currentScript}/reject`, {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        rejectionReason,
+                        notes: document.getElementById('rejectionNotes').value
+                    })
+                });
+
+                closeModal();
+                loadData();
+            } catch (err) {
+                showError('rejectionError', err.message);
+            }
+        }
+
+        // Tab Management
+        function showTab(tabName) {
+            document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+            document.querySelectorAll('.content-section').forEach(section => section.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(tabName).classList.add('active');
+        }
+
+        // Utilities
+        function showError(elementId, message) {
+            const el = document.getElementById(elementId);
+            el.textContent = message;
+            el.style.display = 'block';
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return text.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function loadData() {
+            fetchDashboard();
+            fetchPendingScripts();
+            fetchViolations();
+        }
+
+        // Auto-refresh every 30 seconds
+        setInterval(() => {
+            if (authToken) {
+                loadData();
+            }
+        }, 30000);
+
+        // Check if already logged in
+        if (authToken) {
+            login();
+        }
+    </script>
+</body>
+</html>
