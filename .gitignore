@@ -13,6 +13,12 @@ Thumbs.db
 # Node modules
 node_modules/
 
+# Database
+data/
+*.db
+*.db-shm
+*.db-wal
+
 # Logs
 *.log
 npm-debug.log*

@@ -12,7 +12,7 @@
  * - Automatic schema migration
  * - Query logging for audit trail
  *
- * @version 1.0.0
+ * @version 2.0.0
  */
 
 'use strict';
@@ -52,6 +52,7 @@ class DatabaseManager {
     };
 
     this.db = null;
+    this.SQL = null;
     this.isConnected = false;
   }
 
@@ -84,10 +85,13 @@ class DatabaseManager {
   }
 
   /**
-   * Initialize SQLite database
+   * Initialize SQLite database using sql.js
    */
   async initializeSQLite() {
-    const Database = require('better-sqlite3');
+    const initSqlJs = require('sql.js');
+
+    // Initialize sql.js
+    this.SQL = await initSqlJs();
 
     // Ensure data directory exists
     const dbDir = path.dirname(this.config.sqlitePath);
@@ -95,18 +99,28 @@ class DatabaseManager {
       fs.mkdirSync(dbDir, { recursive: true });
     }
 
-    // Create database connection
-    this.db = new Database(this.config.sqlitePath, {
-      verbose: this.config.logQueries ? console.log : null
-    });
+    // Load existing database or create new one
+    if (fs.existsSync(this.config.sqlitePath)) {
+      const buffer = fs.readFileSync(this.config.sqlitePath);
+      this.db = new this.SQL.Database(buffer);
+      console.log(`[DB] Loaded existing SQLite database from ${this.config.sqlitePath}`);
+    } else {
+      this.db = new this.SQL.Database();
+      console.log(`[DB] Created new SQLite database at ${this.config.sqlitePath}`);
+    }
 
     // Enable foreign keys
-    this.db.pragma('foreign_keys = ON');
+    this.db.run('PRAGMA foreign_keys = ON');
+  }
 
-    // Enable WAL mode for better concurrency
-    this.db.pragma('journal_mode = WAL');
-
-    console.log(`[DB] SQLite database opened at ${this.config.sqlitePath}`);
+  /**
+   * Save SQLite database to disk
+   */
+  saveSQLite() {
+    if (this.config.type === 'sqlite' && this.db) {
+      const data = this.db.export();
+      fs.writeFileSync(this.config.sqlitePath, data);
+    }
   }
 
   /**
@@ -149,6 +163,7 @@ class DatabaseManager {
       // Execute schema
       if (this.config.type === 'sqlite') {
         this.db.exec(schema);
+        this.saveSQLite();
       } else {
         await this.db.query(schema);
       }
@@ -189,30 +204,44 @@ class DatabaseManager {
   }
 
   /**
-   * Execute SQLite query
+   * Execute SQLite query using sql.js
    */
   querySQLite(sql, params) {
-    const stmt = this.db.prepare(sql);
-
-    // Determine query type
     const isSelect = sql.trim().toUpperCase().startsWith('SELECT');
     const isInsert = sql.trim().toUpperCase().startsWith('INSERT');
 
     if (isSelect) {
-      return stmt.all(params);
-    } else if (isInsert) {
-      const info = stmt.run(params);
-      return {
-        rows: [],
-        rowCount: info.changes,
-        lastInsertRowid: info.lastInsertRowid
-      };
+      // Execute SELECT query
+      const stmt = this.db.prepare(sql);
+      stmt.bind(params);
+
+      const rows = [];
+      while (stmt.step()) {
+        const row = stmt.getAsObject();
+        rows.push(row);
+      }
+      stmt.free();
+
+      return rows;
     } else {
-      const info = stmt.run(params);
-      return {
+      // Execute INSERT/UPDATE/DELETE
+      this.db.run(sql, params);
+      this.saveSQLite(); // Persist changes
+
+      const result = {
         rows: [],
-        rowCount: info.changes
+        rowCount: this.db.getRowsModified()
       };
+
+      if (isInsert) {
+        // Get last insert ID
+        const lastIdStmt = this.db.prepare('SELECT last_insert_rowid() as id');
+        lastIdStmt.step();
+        result.lastInsertRowid = lastIdStmt.getAsObject().id;
+        lastIdStmt.free();
+      }
+
+      return result;
     }
   }
 
@@ -241,10 +270,15 @@ class DatabaseManager {
    */
   async beginTransaction() {
     if (this.config.type === 'sqlite') {
-      this.db.exec('BEGIN TRANSACTION');
+      this.db.run('BEGIN TRANSACTION');
       return {
-        commit: () => this.db.exec('COMMIT'),
-        rollback: () => this.db.exec('ROLLBACK')
+        commit: () => {
+          this.db.run('COMMIT');
+          this.saveSQLite();
+        },
+        rollback: () => {
+          this.db.run('ROLLBACK');
+        }
       };
     } else {
       const client = await this.db.connect();
@@ -576,6 +610,7 @@ class DatabaseManager {
 
     try {
       if (this.config.type === 'sqlite') {
+        this.saveSQLite();
         this.db.close();
       } else {
         await this.db.end();
@@ -595,7 +630,9 @@ class DatabaseManager {
   async healthCheck() {
     try {
       if (this.config.type === 'sqlite') {
-        this.db.prepare('SELECT 1').get();
+        const stmt = this.db.prepare('SELECT 1');
+        stmt.step();
+        stmt.free();
       } else {
         await this.db.query('SELECT 1');
       }
