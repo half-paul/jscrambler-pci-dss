@@ -1,0 +1,34 @@
+{
+  "name": "script-integrity-monitor",
+  "version": "1.0.0",
+  "description": "Script Integrity Monitoring solution for PCI DSS v4.0 requirement 6.4.3 compliance",
+  "main": "script-integrity-monitor.js",
+  "scripts": {
+    "start": "node server-alert-handler.js",
+    "dev": "nodemon server-alert-handler.js",
+    "test": "echo \"Open test-script-integrity.html in a browser to run tests\"",
+    "generate-hashes": "node scripts/generate-hashes.js"
+  },
+  "keywords": [
+    "pci-dss",
+    "security",
+    "script-integrity",
+    "sri",
+    "subresource-integrity",
+    "compliance",
+    "monitoring"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
