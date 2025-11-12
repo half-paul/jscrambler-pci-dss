@@ -65,7 +65,19 @@
         batchInterval: config.batchInterval || 5000, // ms
 
         // Debug mode (enabled by default for visibility)
-        debug: config.debug !== false
+        debug: config.debug !== false,
+
+        // Server integration configuration
+        serverBaseUrl: config.serverBaseUrl || null,
+        registerScriptEndpoint: config.registerScriptEndpoint || '/api/scripts/register',
+        checkStatusEndpoint: config.checkStatusEndpoint || '/api/scripts/status',
+        reportViolationEndpoint: config.reportViolationEndpoint || '/api/scripts/violation',
+        autoRegisterNewScripts: config.autoRegisterNewScripts !== false,
+        pollApprovalStatus: config.pollApprovalStatus !== false,
+        pollInterval: config.pollInterval || 30000,
+        pollTimeout: config.pollTimeout || 300000,
+        fallbackMode: config.fallbackMode || 'report',
+        serverTimeoutMs: config.serverTimeoutMs || 5000
       };
 
       // Script inventory: stores all detected scripts with metadata
