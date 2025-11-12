@@ -224,9 +224,19 @@ class DatabaseManager {
 
       return rows;
     } else {
-      // Execute INSERT/UPDATE/DELETE
-      this.db.run(sql, params);
-      this.saveSQLite(); // Persist changes
+      // Execute INSERT/UPDATE/DELETE using prepare/bind/step pattern
+      const stmt = this.db.prepare(sql);
+      stmt.bind(params);
+
+      try {
+        stmt.step();
+        stmt.free();
+        this.saveSQLite(); // Persist changes
+      } catch (error) {
+        stmt.free();
+        console.error('[DB] Execute error:', error.message);
+        throw error;
+      }
 
       const result = {
         rows: [],
@@ -234,11 +244,10 @@ class DatabaseManager {
       };
 
       if (isInsert) {
-        // Get last insert ID
-        const lastIdStmt = this.db.prepare('SELECT last_insert_rowid() as id');
-        lastIdStmt.step();
-        result.lastInsertRowid = lastIdStmt.getAsObject().id;
-        lastIdStmt.free();
+        // For sql.js, last_insert_rowid() returns 0 after migrations create tables
+        // Instead, we'll get the ID from a subsequent query in registerScript
+        // This is a workaround for sql.js behavior
+        result.lastInsertRowid = null;
       }
 
       return result;
@@ -331,7 +340,7 @@ class DatabaseManager {
     }
 
     // Insert new script
-    const result = await this.query(
+    await this.query(
       `INSERT INTO scripts (
         url, content_hash, script_type, size_bytes, content_preview,
         page_url, discovery_context, status
@@ -339,9 +348,15 @@ class DatabaseManager {
       [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext]
     );
 
+    // Query back the inserted record to get its ID (workaround for sql.js last_insert_rowid issue)
+    const inserted = await this.queryOne(
+      'SELECT id, status FROM scripts WHERE url = ? AND content_hash = ?',
+      [url, contentHash]
+    );
+
     return {
-      scriptId: result.lastInsertRowid || result.rows[0]?.id,
-      status: 'pending_approval',
+      scriptId: inserted.id,
+      status: inserted.status,
       isNew: true
     };
   }
