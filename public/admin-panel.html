@@ -492,9 +492,13 @@
             <div class="modal-header">
                 <h2>Script Details</h2>
             </div>
+            <div id="scriptDetailsError" class="error-message" style="display:none;"></div>
             <div id="scriptDetailsContent" class="loading">Loading...</div>
             <div class="modal-actions">
-                <button class="secondary" onclick="closeScriptDetailsModal()">Close</button>
+                <button id="editScriptBtn" class="primary" onclick="toggleEditMode()" style="display:none;">Edit</button>
+                <button id="saveScriptBtn" class="success" onclick="saveScriptChanges()" style="display:none;">Save Changes</button>
+                <button id="cancelEditBtn" class="secondary" onclick="cancelEdit()" style="display:none;">Cancel</button>
+                <button id="closeDetailsBtn" class="secondary" onclick="closeScriptDetailsModal()">Close</button>
             </div>
         </div>
     </div>
@@ -504,6 +508,8 @@
         const API_BASE = window.location.origin;
         let authToken = localStorage.getItem('adminToken');
         let currentScript = null;
+        let currentScriptDetails = null;
+        let isEditMode = false;
 
         // Authentication
         function login() {
@@ -751,11 +757,16 @@
         async function showScriptDetails(scriptId) {
             document.getElementById('scriptDetailsModal').classList.add('active');
             document.getElementById('scriptDetailsContent').innerHTML = '<div class="loading">Loading script details...</div>';
+            document.getElementById('scriptDetailsError').style.display = 'none';
+            isEditMode = false;
 
             try {
                 const data = await apiCall(`/api/admin/scripts/${scriptId}`);
                 const script = data.script;
                 const auditLog = data.auditLog || [];
+
+                // Store for editing
+                currentScriptDetails = { script, auditLog };
 
                 const statusColors = {
                     'approved': 'success',
@@ -885,6 +896,13 @@
                         ` : ''}
                     </div>
                 `;
+
+                // Show edit button
+                document.getElementById('editScriptBtn').style.display = 'inline-block';
+                document.getElementById('saveScriptBtn').style.display = 'none';
+                document.getElementById('cancelEditBtn').style.display = 'none';
+                document.getElementById('closeDetailsBtn').style.display = 'inline-block';
+
             } catch (err) {
                 document.getElementById('scriptDetailsContent').innerHTML = `
                     <div class="error-message" style="display: block;">
@@ -894,8 +912,142 @@
             }
         }
 
+        function toggleEditMode() {
+            isEditMode = true;
+            renderEditMode();
+        }
+
+        function renderEditMode() {
+            if (!currentScriptDetails) return;
+
+            const script = currentScriptDetails.script;
+
+            document.getElementById('scriptDetailsContent').innerHTML = `
+                <div style="display: grid; gap: 20px;">
+                    <div class="form-group">
+                        <label for="editStatus">Status *</label>
+                        <select id="editStatus">
+                            <option value="pending_approval" ${script.status === 'pending_approval' ? 'selected' : ''}>Pending Approval</option>
+                            <option value="approved" ${script.status === 'approved' ? 'selected' : ''}>Approved</option>
+                            <option value="rejected" ${script.status === 'rejected' ? 'selected' : ''}>Rejected</option>
+                            <option value="flagged" ${script.status === 'flagged' ? 'selected' : ''}>Flagged</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editBusinessJustification">Business Justification</label>
+                        <textarea id="editBusinessJustification" rows="3">${script.business_justification || ''}</textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editScriptPurpose">Script Purpose</label>
+                        <input type="text" id="editScriptPurpose" value="${escapeHtml(script.script_purpose || '')}">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editScriptOwner">Script Owner</label>
+                        <input type="text" id="editScriptOwner" value="${escapeHtml(script.script_owner || '')}">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editRiskLevel">Risk Level</label>
+                        <select id="editRiskLevel">
+                            <option value="">None</option>
+                            <option value="low" ${script.risk_level === 'low' ? 'selected' : ''}>Low</option>
+                            <option value="medium" ${script.risk_level === 'medium' ? 'selected' : ''}>Medium</option>
+                            <option value="high" ${script.risk_level === 'high' ? 'selected' : ''}>High</option>
+                            <option value="critical" ${script.risk_level === 'critical' ? 'selected' : ''}>Critical</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editApprovalNotes">Notes</label>
+                        <textarea id="editApprovalNotes" rows="3">${script.approval_notes || ''}</textarea>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="editRejectionReason">Rejection Reason (if rejected)</label>
+                        <textarea id="editRejectionReason" rows="2">${script.rejection_reason || ''}</textarea>
+                    </div>
+
+                    <div style="padding: 15px; background: #f8f9fa; border-radius: 4px;">
+                        <h4 style="margin: 0 0 10px 0; color: #666;">Read-Only Information</h4>
+                        <div class="info-grid">
+                            <div class="info-label">ID:</div>
+                            <div>${script.id}</div>
+                            <div class="info-label">URL:</div>
+                            <div style="word-break: break-all;">${escapeHtml(script.url)}</div>
+                            <div class="info-label">Type:</div>
+                            <div>${script.script_type}</div>
+                            <div class="info-label">First Seen:</div>
+                            <div>${new Date(script.first_seen).toLocaleString()}</div>
+                            <div class="info-label">Last Seen:</div>
+                            <div>${new Date(script.last_seen).toLocaleString()}</div>
+                            ${script.approved_at ? `
+                            <div class="info-label">Approved/Rejected At:</div>
+                            <div>${new Date(script.approved_at).toLocaleString()}</div>
+                            ` : ''}
+                            ${script.approved_by ? `
+                            <div class="info-label">Approved/Rejected By:</div>
+                            <div>${script.approved_by}</div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            // Update buttons
+            document.getElementById('editScriptBtn').style.display = 'none';
+            document.getElementById('saveScriptBtn').style.display = 'inline-block';
+            document.getElementById('cancelEditBtn').style.display = 'inline-block';
+            document.getElementById('closeDetailsBtn').style.display = 'none';
+        }
+
+        async function saveScriptChanges() {
+            if (!currentScriptDetails) return;
+
+            const scriptId = currentScriptDetails.script.id;
+            const updateData = {
+                status: document.getElementById('editStatus').value,
+                businessJustification: document.getElementById('editBusinessJustification').value,
+                scriptPurpose: document.getElementById('editScriptPurpose').value,
+                scriptOwner: document.getElementById('editScriptOwner').value,
+                riskLevel: document.getElementById('editRiskLevel').value || null,
+                approvalNotes: document.getElementById('editApprovalNotes').value,
+                rejectionReason: document.getElementById('editRejectionReason').value
+            };
+
+            try {
+                await apiCall(`/api/admin/scripts/${scriptId}/update`, {
+                    method: 'PUT',
+                    body: JSON.stringify(updateData)
+                });
+
+                document.getElementById('scriptDetailsError').style.display = 'none';
+
+                // Reload script details
+                await showScriptDetails(scriptId);
+
+                // Refresh the inventory table
+                fetchInventory();
+
+            } catch (err) {
+                document.getElementById('scriptDetailsError').textContent = 'Failed to save changes: ' + err.message;
+                document.getElementById('scriptDetailsError').style.display = 'block';
+            }
+        }
+
+        function cancelEdit() {
+            if (!currentScriptDetails) return;
+
+            // Redisplay in view mode
+            showScriptDetails(currentScriptDetails.script.id);
+        }
+
         function closeScriptDetailsModal() {
             document.getElementById('scriptDetailsModal').classList.remove('active');
+            isEditMode = false;
+            currentScriptDetails = null;
         }
 
         async function submitApproval() {

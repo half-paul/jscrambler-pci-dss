@@ -538,6 +538,115 @@ app.get('/api/admin/scripts/:id', authenticate, async (req, res) => {
 });
 
 /**
+ * PUT /api/admin/scripts/:id/update
+ * Update script properties (except dates)
+ */
+app.put('/api/admin/scripts/:id/update', authenticate, requireRole('reviewer', 'admin', 'super_admin'), async (req, res) => {
+  try {
+    const scriptId = parseInt(req.params.id);
+    const {
+      status,
+      businessJustification,
+      scriptPurpose,
+      scriptOwner,
+      riskLevel,
+      approvalNotes,
+      rejectionReason
+    } = req.body;
+
+    // Get current script
+    const currentScript = await db.getScriptById(scriptId);
+    if (!currentScript) {
+      return res.status(404).json({ error: 'Script not found' });
+    }
+
+    // Build update query
+    const updates = [];
+    const params = [];
+
+    if (status !== undefined) {
+      const validStatuses = ['pending_approval', 'approved', 'rejected', 'flagged'];
+      if (!validStatuses.includes(status)) {
+        return res.status(400).json({
+          error: 'Invalid status',
+          validStatuses
+        });
+      }
+      updates.push('status = ?');
+      params.push(status);
+
+      // If changing to approved/rejected, update approved_at and approved_by
+      if ((status === 'approved' || status === 'rejected') && currentScript.status !== status) {
+        updates.push('approved_at = CURRENT_TIMESTAMP');
+        updates.push('approved_by = ?');
+        params.push(req.admin.username);
+      }
+    }
+
+    if (businessJustification !== undefined) {
+      updates.push('business_justification = ?');
+      params.push(businessJustification);
+    }
+
+    if (scriptPurpose !== undefined) {
+      updates.push('script_purpose = ?');
+      params.push(scriptPurpose);
+    }
+
+    if (scriptOwner !== undefined) {
+      updates.push('script_owner = ?');
+      params.push(scriptOwner);
+    }
+
+    if (riskLevel !== undefined) {
+      const validRiskLevels = ['low', 'medium', 'high', 'critical'];
+      if (riskLevel && !validRiskLevels.includes(riskLevel)) {
+        return res.status(400).json({
+          error: 'Invalid risk level',
+          validRiskLevels
+        });
+      }
+      updates.push('risk_level = ?');
+      params.push(riskLevel || null);
+    }
+
+    if (approvalNotes !== undefined) {
+      updates.push('approval_notes = ?');
+      params.push(approvalNotes);
+    }
+
+    if (rejectionReason !== undefined) {
+      updates.push('rejection_reason = ?');
+      params.push(rejectionReason);
+    }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    // Execute update
+    params.push(scriptId);
+    const sql = `UPDATE scripts SET ${updates.join(', ')} WHERE id = ?`;
+    const result = await db.query(sql, params);
+
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: 'Script not found' });
+    }
+
+    console.log(`[Admin] Script ${scriptId} updated by ${req.admin.username}`);
+
+    res.json({
+      success: true,
+      message: 'Script updated successfully'
+    });
+
+  } catch (error) {
+    console.error('[Admin] Update error:', error.message);
+    res.status(500).json({ error: 'Update failed' });
+  }
+});
+
+/**
  * POST /api/admin/violations/:id/review
  * Update violation review status
  */
