@@ -566,6 +566,11 @@
             renderViolations(data.data || []);
         }
 
+        async function fetchInventory() {
+            const data = await apiCall('/api/admin/scripts/search?limit=100');
+            renderInventory(data.data || []);
+        }
+
         function renderPendingScripts(scripts) {
             const container = document.getElementById('pendingContent');
 
@@ -636,6 +641,61 @@
                         `).join('')}
                     </tbody>
                 </table>
+            `;
+        }
+
+        function renderInventory(scripts) {
+            const container = document.getElementById('inventoryContent');
+
+            if (scripts.length === 0) {
+                container.innerHTML = '<div class="empty-state"><h3>No scripts</h3><p>No scripts have been discovered yet</p></div>';
+                return;
+            }
+
+            const statusColors = {
+                'approved': 'success',
+                'pending_approval': 'warning',
+                'rejected': 'danger',
+                'flagged': 'warning'
+            };
+
+            const statusLabels = {
+                'approved': 'Approved',
+                'pending_approval': 'Pending',
+                'rejected': 'Rejected',
+                'flagged': 'Flagged'
+            };
+
+            container.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>URL</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Risk Level</th>
+                            <th>First Seen</th>
+                            <th>Approved By</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${scripts.map(script => `
+                            <tr>
+                                <td>${script.id}</td>
+                                <td style="max-width: 350px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(script.url)}">${escapeHtml(script.url)}</td>
+                                <td><span class="badge">${script.script_type}</span></td>
+                                <td><span class="badge ${statusColors[script.status] || ''}">${statusLabels[script.status] || script.status}</span></td>
+                                <td>${script.risk_level ? `<span class="badge ${script.risk_level}">${script.risk_level}</span>` : '-'}</td>
+                                <td>${new Date(script.first_seen).toLocaleString()}</td>
+                                <td>${script.approved_by || '-'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+                <div style="margin-top: 20px; color: #666; font-size: 14px;">
+                    Showing ${scripts.length} script${scripts.length !== 1 ? 's' : ''}
+                </div>
             `;
         }
 
@@ -757,6 +817,7 @@
             fetchDashboard();
             fetchPendingScripts();
             fetchViolations();
+            fetchInventory();
         }
 
         // Auto-refresh every 30 seconds

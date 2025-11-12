@@ -482,6 +482,34 @@ app.get('/api/admin/violations', authenticate, async (req, res) => {
 });
 
 /**
+ * GET /api/admin/scripts/search
+ * Search scripts (MUST be before /:id route)
+ */
+app.get('/api/admin/scripts/search', authenticate, async (req, res) => {
+  try {
+    const { q, status, type, limit, offset } = req.query;
+
+    const scripts = await db.searchScripts({
+      query: q,
+      status,
+      scriptType: type,
+      limit: parseInt(limit) || 50,
+      offset: parseInt(offset) || 0
+    });
+
+    res.json({
+      success: true,
+      data: scripts,
+      count: scripts.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Search error:', error.message);
+    res.status(500).json({ error: 'Search failed' });
+  }
+});
+
+/**
  * GET /api/admin/scripts/:id
  * Get script details
  */
@@ -568,34 +596,6 @@ app.get('/api/admin/dashboard', authenticate, async (req, res) => {
   } catch (error) {
     console.error('[Admin] Dashboard error:', error.message);
     res.status(500).json({ error: 'Failed to fetch dashboard data' });
-  }
-});
-
-/**
- * GET /api/admin/scripts/search
- * Search scripts
- */
-app.get('/api/admin/scripts/search', authenticate, async (req, res) => {
-  try {
-    const { q, status, type, limit, offset } = req.query;
-
-    const scripts = await db.searchScripts({
-      query: q,
-      status,
-      scriptType: type,
-      limit: parseInt(limit) || 50,
-      offset: parseInt(offset) || 0
-    });
-
-    res.json({
-      success: true,
-      data: scripts,
-      count: scripts.length
-    });
-
-  } catch (error) {
-    console.error('[Admin] Search error:', error.message);
-    res.status(500).json({ error: 'Search failed' });
   }
 });
 
