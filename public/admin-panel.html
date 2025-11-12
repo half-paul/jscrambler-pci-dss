@@ -486,6 +486,19 @@
         </div>
     </div>
 
+    <!-- Script Details Modal -->
+    <div id="scriptDetailsModal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2>Script Details</h2>
+            </div>
+            <div id="scriptDetailsContent" class="loading">Loading...</div>
+            <div class="modal-actions">
+                <button class="secondary" onclick="closeScriptDetailsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Configuration
         const API_BASE = window.location.origin;
@@ -681,7 +694,7 @@
                     </thead>
                     <tbody>
                         ${scripts.map(script => `
-                            <tr>
+                            <tr onclick="showScriptDetails(${script.id})" style="cursor: pointer;" title="Click to view details">
                                 <td>${script.id}</td>
                                 <td style="max-width: 350px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(script.url)}">${escapeHtml(script.url)}</td>
                                 <td><span class="badge">${script.script_type}</span></td>
@@ -694,7 +707,7 @@
                     </tbody>
                 </table>
                 <div style="margin-top: 20px; color: #666; font-size: 14px;">
-                    Showing ${scripts.length} script${scripts.length !== 1 ? 's' : ''}
+                    Showing ${scripts.length} script${scripts.length !== 1 ? 's' : ''} (Click any row to view details)
                 </div>
             `;
         }
@@ -732,6 +745,157 @@
             document.getElementById('approvalModal').classList.remove('active');
             document.getElementById('rejectionModal').classList.remove('active');
             currentScript = null;
+        }
+
+        // Script Details Modal
+        async function showScriptDetails(scriptId) {
+            document.getElementById('scriptDetailsModal').classList.add('active');
+            document.getElementById('scriptDetailsContent').innerHTML = '<div class="loading">Loading script details...</div>';
+
+            try {
+                const data = await apiCall(`/api/admin/scripts/${scriptId}`);
+                const script = data.script;
+                const auditLog = data.auditLog || [];
+
+                const statusColors = {
+                    'approved': 'success',
+                    'pending_approval': 'warning',
+                    'rejected': 'danger',
+                    'flagged': 'warning'
+                };
+
+                const statusLabels = {
+                    'approved': 'Approved',
+                    'pending_approval': 'Pending Approval',
+                    'rejected': 'Rejected',
+                    'flagged': 'Flagged'
+                };
+
+                document.getElementById('scriptDetailsContent').innerHTML = `
+                    <div style="display: grid; gap: 30px;">
+                        <!-- Basic Information -->
+                        <div>
+                            <h3 style="margin-bottom: 15px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">Basic Information</h3>
+                            <div class="info-grid">
+                                <div class="info-label">ID:</div>
+                                <div>${script.id}</div>
+
+                                <div class="info-label">URL:</div>
+                                <div style="word-break: break-all;">${escapeHtml(script.url)}</div>
+
+                                <div class="info-label">Type:</div>
+                                <div><span class="badge">${script.script_type}</span></div>
+
+                                <div class="info-label">Status:</div>
+                                <div><span class="badge ${statusColors[script.status] || ''}">${statusLabels[script.status] || script.status}</span></div>
+
+                                <div class="info-label">Size:</div>
+                                <div>${script.size_bytes ? (script.size_bytes / 1024).toFixed(2) + ' KB' : '-'}</div>
+
+                                <div class="info-label">First Seen:</div>
+                                <div>${new Date(script.first_seen).toLocaleString()}</div>
+
+                                <div class="info-label">Last Seen:</div>
+                                <div>${new Date(script.last_seen).toLocaleString()}</div>
+
+                                <div class="info-label">Page URL:</div>
+                                <div style="word-break: break-all;">${escapeHtml(script.page_url)}</div>
+
+                                <div class="info-label">Discovery Context:</div>
+                                <div style="font-family: monospace; font-size: 12px; word-break: break-all;">${script.discovery_context || '-'}</div>
+                            </div>
+                        </div>
+
+                        <!-- Hash Information -->
+                        <div>
+                            <h3 style="margin-bottom: 15px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">Hash Information</h3>
+                            <div class="info-grid">
+                                <div class="info-label">Content Hash:</div>
+                                <div style="font-family: monospace; font-size: 12px; word-break: break-all;">${escapeHtml(script.content_hash)}</div>
+                            </div>
+                        </div>
+
+                        <!-- Content Preview -->
+                        ${script.content_preview ? `
+                        <div>
+                            <h3 style="margin-bottom: 15px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">Content Preview</h3>
+                            <pre style="background: #f8f9fa; padding: 15px; border-radius: 4px; overflow-x: auto; max-height: 200px; font-size: 12px;">${escapeHtml(script.content_preview)}</pre>
+                        </div>
+                        ` : ''}
+
+                        <!-- Approval Information -->
+                        ${script.status === 'approved' || script.status === 'rejected' ? `
+                        <div>
+                            <h3 style="margin-bottom: 15px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">${script.status === 'approved' ? 'Approval' : 'Rejection'} Information</h3>
+                            <div class="info-grid">
+                                <div class="info-label">${script.status === 'approved' ? 'Approved By' : 'Rejected By'}:</div>
+                                <div>${script.approved_by || '-'}</div>
+
+                                <div class="info-label">${script.status === 'approved' ? 'Approved At' : 'Rejected At'}:</div>
+                                <div>${script.approved_at ? new Date(script.approved_at).toLocaleString() : '-'}</div>
+
+                                ${script.status === 'approved' ? `
+                                <div class="info-label">Business Justification:</div>
+                                <div>${script.business_justification || '-'}</div>
+
+                                <div class="info-label">Script Purpose:</div>
+                                <div>${script.script_purpose || '-'}</div>
+
+                                <div class="info-label">Script Owner:</div>
+                                <div>${script.script_owner || '-'}</div>
+
+                                <div class="info-label">Risk Level:</div>
+                                <div>${script.risk_level ? `<span class="badge ${script.risk_level}">${script.risk_level}</span>` : '-'}</div>
+                                ` : `
+                                <div class="info-label">Rejection Reason:</div>
+                                <div>${script.rejection_reason || '-'}</div>
+                                `}
+
+                                <div class="info-label">Notes:</div>
+                                <div>${script.approval_notes || '-'}</div>
+                            </div>
+                        </div>
+                        ` : ''}
+
+                        <!-- Audit Log -->
+                        ${auditLog.length > 0 ? `
+                        <div>
+                            <h3 style="margin-bottom: 15px; color: #2c3e50; border-bottom: 2px solid #3498db; padding-bottom: 10px;">Audit Log</h3>
+                            <table style="width: 100%;">
+                                <thead>
+                                    <tr>
+                                        <th>Action</th>
+                                        <th>Status Change</th>
+                                        <th>Performed By</th>
+                                        <th>Date</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${auditLog.map(log => `
+                                        <tr>
+                                            <td><span class="badge">${log.action}</span></td>
+                                            <td>${log.previous_status || '-'} → ${log.new_status}</td>
+                                            <td>${log.performed_by}</td>
+                                            <td>${new Date(log.performed_at).toLocaleString()}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                        ` : ''}
+                    </div>
+                `;
+            } catch (err) {
+                document.getElementById('scriptDetailsContent').innerHTML = `
+                    <div class="error-message" style="display: block;">
+                        Failed to load script details: ${err.message}
+                    </div>
+                `;
+            }
+        }
+
+        function closeScriptDetailsModal() {
+            document.getElementById('scriptDetailsModal').classList.remove('active');
         }
 
         async function submitApproval() {
@@ -827,9 +991,19 @@
             }
         }, 30000);
 
-        // Check if already logged in
+        // Check if already logged in on page load
         if (authToken) {
-            login();
+            // Test the token and show dashboard if valid
+            fetchDashboard().then(() => {
+                document.getElementById('authSection').style.display = 'none';
+                document.getElementById('mainDashboard').style.display = 'block';
+                loadData();
+            }).catch(err => {
+                // Token expired or invalid, show login
+                authToken = null;
+                localStorage.removeItem('adminToken');
+                console.error('Session expired:', err.message);
+            });
         }
     </script>
 </body>
