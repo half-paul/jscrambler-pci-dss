@@ -309,24 +309,24 @@ ORDER BY iv.detected_at DESC;
 CREATE VIEW IF NOT EXISTS v_compliance_summary AS
 SELECT
     COUNT(*) as total_scripts,
-    SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END) as approved_scripts,
-    SUM(CASE WHEN status = 'pending_approval' THEN 1 ELSE 0 END) as pending_scripts,
-    SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END) as rejected_scripts,
-    SUM(CASE WHEN status = 'flagged' THEN 1 ELSE 0 END) as flagged_scripts,
-    SUM(CASE WHEN script_type = 'inline' THEN 1 ELSE 0 END) as inline_scripts,
-    SUM(CASE WHEN script_type = 'external' THEN 1 ELSE 0 END) as external_scripts
+    COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) as approved_scripts,
+    COALESCE(SUM(CASE WHEN status = 'pending_approval' THEN 1 ELSE 0 END), 0) as pending_scripts,
+    COALESCE(SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END), 0) as rejected_scripts,
+    COALESCE(SUM(CASE WHEN status = 'flagged' THEN 1 ELSE 0 END), 0) as flagged_scripts,
+    COALESCE(SUM(CASE WHEN script_type = 'inline' THEN 1 ELSE 0 END), 0) as inline_scripts,
+    COALESCE(SUM(CASE WHEN script_type = 'external' THEN 1 ELSE 0 END), 0) as external_scripts
 FROM scripts;
 
 -- View: Violation Statistics
 CREATE VIEW IF NOT EXISTS v_violation_statistics AS
 SELECT
     COUNT(*) as total_violations,
-    SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical_count,
-    SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) as high_count,
-    SUM(CASE WHEN severity = 'MEDIUM' THEN 1 ELSE 0 END) as medium_count,
-    SUM(CASE WHEN severity = 'LOW' THEN 1 ELSE 0 END) as low_count,
-    SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END) as pending_review,
-    SUM(CASE WHEN review_status = 'confirmed_attack' THEN 1 ELSE 0 END) as confirmed_attacks
+    COALESCE(SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END), 0) as critical_count,
+    COALESCE(SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END), 0) as high_count,
+    COALESCE(SUM(CASE WHEN severity = 'MEDIUM' THEN 1 ELSE 0 END), 0) as medium_count,
+    COALESCE(SUM(CASE WHEN severity = 'LOW' THEN 1 ELSE 0 END), 0) as low_count,
+    COALESCE(SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END), 0) as pending_review,
+    COALESCE(SUM(CASE WHEN review_status = 'confirmed_attack' THEN 1 ELSE 0 END), 0) as confirmed_attacks
 FROM integrity_violations;
 
 -- ============================================================================
