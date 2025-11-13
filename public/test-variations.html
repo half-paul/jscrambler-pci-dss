@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Inline Script Variations</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        .info-box {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #2980b9;
+        }
+        #output {
+            background: #ecf0f1;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: bold;
+            margin: 0 5px;
+        }
+        .badge.success { background: #27ae60; color: white; }
+        .badge.warning { background: #f39c12; color: white; }
+        .badge.info { background: #3498db; color: white; }
+    </style>
+</head>
+<body>
+    <h1>🧪 Inline Script Variation Testing</h1>
+
+    <div class="info-box">
+        <h3>Test Instructions:</h3>
+        <ol>
+            <li>Click "Load Page Version 1" - This creates an inline script at position 0</li>
+            <li>Refresh the page and click "Load Page Version 1" again - Access count should increment</li>
+            <li>Click "Load Page Version 2" - This creates a DIFFERENT inline script at the SAME position</li>
+            <li>Check the admin panel to see the variation tracked</li>
+            <li>Check that access counts are displayed and incrementing</li>
+        </ol>
+    </div>
+
+    <!-- Load monitoring scripts FIRST -->
+    <script src="script-integrity-config.js"></script>
+    <script src="script-integrity-monitor.js"></script>
+
+    <div>
+        <button onclick="loadVersion1()">Load Page Version 1</button>
+        <button onclick="loadVersion2()">Load Page Version 2</button>
+        <button onclick="reloadPage()">Reload Page (Test Access Count)</button>
+        <button onclick="clearOutput()">Clear Output</button>
+    </div>
+
+    <div id="output">Waiting for action...</div>
+
+    <script>
+        function log(message, type = 'info') {
+            const output = document.getElementById('output');
+            const timestamp = new Date().toLocaleTimeString();
+            const badge = type === 'success' ? '✅' : type === 'warning' ? '⚠️' : 'ℹ️';
+            output.textContent += `[${timestamp}] ${badge} ${message}\n`;
+            output.scrollTop = output.scrollHeight;
+        }
+
+        function clearOutput() {
+            document.getElementById('output').textContent = '';
+        }
+
+        function loadVersion1() {
+            log('Loading Page Version 1...', 'info');
+
+            // Remove existing test script if any
+            const existing = document.getElementById('testScript');
+            if (existing) existing.remove();
+
+            // Create inline script VERSION 1
+            const script = document.createElement('script');
+            script.id = 'testScript';
+            script.textContent = `
+                console.log('Inline Script Version 1 - This is the first version');
+                console.log('Current time: ' + new Date().toISOString());
+                // This script does version 1 things
+            `;
+            document.body.appendChild(script);
+
+            log('Created inline script VERSION 1 at position 0', 'success');
+            log('Check browser console for monitor logs', 'info');
+            log('Check browser console for monitor logs', 'info');
+            log('Check browser console for monitor logs', 'info');
+        }
+
+        function loadVersion2() {
+            log('Loading Page Version 2...', 'warning');
+
+            // Remove existing test script
+            const existing = document.getElementById('testScript');
+            if (existing) existing.remove();
+
+            // Create inline script VERSION 2 (different content, same position)
+            const script = document.createElement('script');
+            script.id = 'testScript';
+            script.textContent = `
+                console.log('Inline Script Version 2 - This is a DIFFERENT version');
+                console.log('Modified at: ' + new Date().toISOString());
+                console.log('This version has DIFFERENT code!');
+                // This script does version 2 things (CHANGED!)
+            `;
+            document.body.appendChild(script);
+
+            log('Created inline script VERSION 2 at position 0 (VARIATION)', 'warning');
+            log('This should be detected as a variation of the first script!', 'warning');
+            log('Check browser console for monitor logs', 'info');
+        }
+
+        function reloadPage() {
+            log('Reloading page to test access count increment...', 'info');
+            setTimeout(() => {
+                window.location.reload();
+            }, 500);
+        }
+
+        // Show initial instructions
+        log('=== Inline Script Variation Testing ===', 'info');
+        log('Use the buttons above to test variations.', 'info');
+        log('Monitor will detect inline scripts and send to server', 'info');
+        log('', 'info');
+        log('', 'info');
+    </script>
+</body>
+</html>

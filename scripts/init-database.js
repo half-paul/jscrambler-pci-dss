@@ -48,10 +48,10 @@ async function initDatabase() {
       console.log('[Init] Default admin user created');
     } catch (err) {
       if (err.message.includes('UNIQUE constraint')) {
-        console.log('[Init] Admin user already exists, updating token...');
+        console.log('[Init] Admin user already exists, updating password and token...');
         await db.query(
-          'UPDATE admin_users SET api_token = ? WHERE username = ?',
-          [apiToken, 'admin']
+          'UPDATE admin_users SET password_hash = ?, api_token = ? WHERE username = ?',
+          [passwordHash, apiToken, 'admin']
         );
       } else {
         throw err;

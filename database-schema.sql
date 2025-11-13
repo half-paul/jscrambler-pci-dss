@@ -49,8 +49,19 @@ CREATE TABLE IF NOT EXISTS scripts (
     risk_level TEXT CHECK(risk_level IN ('low', 'medium', 'high', 'critical')),
     requires_review_date DATETIME,          -- When script needs re-review
 
+    -- Access Tracking (NEW)
+    access_count INTEGER DEFAULT 0,         -- How many times this script was loaded/accessed
+    last_accessed DATETIME,                 -- Last time this script was accessed
+
+    -- Inline Script Variation Tracking (NEW)
+    script_position INTEGER,                -- Position/index of inline script in page (NULL for external)
+    parent_script_id INTEGER,               -- References parent script if this is a variation
+    is_variation BOOLEAN DEFAULT 0,         -- Flag indicating this is a variation of another script
+    variation_number INTEGER,               -- Sequential variation number (1, 2, 3...)
+
     -- Indexing for performance
-    UNIQUE(url, content_hash)               -- Prevent duplicate entries
+    UNIQUE(url, content_hash),              -- Prevent duplicate entries
+    FOREIGN KEY (parent_script_id) REFERENCES scripts(id) ON DELETE SET NULL
 );
 
 -- Indexes for scripts table
@@ -59,6 +70,9 @@ CREATE INDEX IF NOT EXISTS idx_scripts_url ON scripts(url);
 CREATE INDEX IF NOT EXISTS idx_scripts_hash ON scripts(content_hash);
 CREATE INDEX IF NOT EXISTS idx_scripts_first_seen ON scripts(first_seen);
 CREATE INDEX IF NOT EXISTS idx_scripts_type ON scripts(script_type);
+CREATE INDEX IF NOT EXISTS idx_scripts_parent ON scripts(parent_script_id);
+CREATE INDEX IF NOT EXISTS idx_scripts_position ON scripts(script_position);
+CREATE INDEX IF NOT EXISTS idx_scripts_access_count ON scripts(access_count);
 
 -- ============================================================================
 -- INTEGRITY VIOLATIONS TABLE
@@ -159,8 +173,14 @@ CREATE TABLE IF NOT EXISTS admin_users (
 
     -- Authentication
     password_hash TEXT NOT NULL,            -- Hashed password (bcrypt)
-    api_token TEXT UNIQUE,                  -- API token for authentication
+    api_token TEXT UNIQUE,                  -- API token for authentication (deprecated, kept for compatibility)
     api_token_created_at DATETIME,
+
+    -- MFA (Multi-Factor Authentication)
+    mfa_enabled BOOLEAN NOT NULL DEFAULT 0, -- Whether MFA is enabled
+    mfa_secret TEXT,                        -- TOTP secret (encrypted)
+    mfa_backup_codes TEXT,                  -- JSON array of hashed backup codes
+    mfa_setup_at DATETIME,                  -- When MFA was first enabled
 
     -- Role and Permissions
     role TEXT NOT NULL DEFAULT 'reviewer'
@@ -182,6 +202,36 @@ CREATE TABLE IF NOT EXISTS admin_users (
 CREATE INDEX IF NOT EXISTS idx_admin_username ON admin_users(username);
 CREATE INDEX IF NOT EXISTS idx_admin_token ON admin_users(api_token);
 CREATE INDEX IF NOT EXISTS idx_admin_email ON admin_users(email);
+
+-- ============================================================================
+-- ADMIN SESSIONS TABLE
+-- ============================================================================
+-- Tracks active admin sessions with JWT tokens
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    admin_id INTEGER NOT NULL,
+    jwt_token TEXT UNIQUE NOT NULL,         -- JWT token
+    refresh_token TEXT UNIQUE NOT NULL,     -- Refresh token for renewing JWT
+
+    -- Session Info
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    expires_at DATETIME NOT NULL,
+    last_activity DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Security
+    ip_address TEXT,
+    user_agent TEXT,
+    is_revoked BOOLEAN DEFAULT 0,
+
+    FOREIGN KEY (admin_id) REFERENCES admin_users(id) ON DELETE CASCADE
+);
+
+-- Indexes for sessions
+CREATE INDEX IF NOT EXISTS idx_sessions_admin_id ON admin_sessions(admin_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_jwt_token ON admin_sessions(jwt_token);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON admin_sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_is_revoked ON admin_sessions(is_revoked);
 
 -- ============================================================================
 -- SYSTEM CONFIGURATION TABLE
@@ -287,6 +337,11 @@ SELECT
     s.first_seen,
     s.page_url,
     s.status,
+    s.access_count,
+    s.script_position,
+    s.parent_script_id,
+    s.is_variation,
+    s.variation_number,
     COUNT(DISTINCT iv.id) as violation_count
 FROM scripts s
 LEFT JOIN integrity_violations iv ON s.id = iv.script_id
@@ -314,7 +369,9 @@ SELECT
     COALESCE(SUM(CASE WHEN status = 'rejected' THEN 1 ELSE 0 END), 0) as rejected_scripts,
     COALESCE(SUM(CASE WHEN status = 'flagged' THEN 1 ELSE 0 END), 0) as flagged_scripts,
     COALESCE(SUM(CASE WHEN script_type = 'inline' THEN 1 ELSE 0 END), 0) as inline_scripts,
-    COALESCE(SUM(CASE WHEN script_type = 'external' THEN 1 ELSE 0 END), 0) as external_scripts
+    COALESCE(SUM(CASE WHEN script_type = 'external' THEN 1 ELSE 0 END), 0) as external_scripts,
+    COALESCE(SUM(CASE WHEN is_variation = 1 THEN 1 ELSE 0 END), 0) as variation_scripts,
+    COALESCE(SUM(access_count), 0) as total_accesses
 FROM scripts;
 
 -- View: Violation Statistics

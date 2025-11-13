@@ -308,6 +308,7 @@ class DatabaseManager {
 
   /**
    * Register a new script (auto-discovery)
+   * Handles inline script variations and access counting
    */
   async registerScript(scriptData) {
     const {
@@ -317,35 +318,109 @@ class DatabaseManager {
       sizeBytes,
       contentPreview,
       pageUrl,
-      discoveryContext
+      discoveryContext,
+      scriptPosition  // NEW: Position of inline script
     } = scriptData;
 
-    // Check if script already exists
+    // Check if exact script (url + hash) already exists
     const existing = await this.queryOne(
-      'SELECT id, status FROM scripts WHERE url = ? AND content_hash = ?',
+      'SELECT id, status, access_count FROM scripts WHERE url = ? AND content_hash = ?',
       [url, contentHash]
     );
 
     if (existing) {
-      // Update last_seen
+      // Script exists - increment access count and update timestamps
       await this.query(
-        'UPDATE scripts SET last_seen = CURRENT_TIMESTAMP WHERE id = ?',
+        `UPDATE scripts SET
+          last_seen = CURRENT_TIMESTAMP,
+          last_accessed = CURRENT_TIMESTAMP,
+          access_count = access_count + 1
+        WHERE id = ?`,
         [existing.id]
       );
       return {
         scriptId: existing.id,
         status: existing.status,
-        isNew: false
+        isNew: false,
+        isVariation: false,
+        accessCount: existing.access_count + 1
       };
     }
 
-    // Insert new script
+    // For inline scripts, check if there's already a script at this position (different hash = variation)
+    if (scriptType === 'inline' && scriptPosition !== null && scriptPosition !== undefined) {
+      const existingAtPosition = await this.queryOne(
+        `SELECT id, status, content_hash, parent_script_id, is_variation
+         FROM scripts
+         WHERE page_url = ? AND script_position = ? AND script_type = 'inline'
+         ORDER BY first_seen ASC
+         LIMIT 1`,
+        [pageUrl, scriptPosition]
+      );
+
+      if (existingAtPosition && existingAtPosition.content_hash !== contentHash) {
+        // This is a variation of an existing inline script
+        console.log('[DB] Detected inline script variation at position', scriptPosition);
+
+        // Determine parent script ID
+        const parentScriptId = existingAtPosition.parent_script_id || existingAtPosition.id;
+
+        // Get next variation number
+        const maxVariation = await this.queryOne(
+          `SELECT COALESCE(MAX(variation_number), 0) as max_var
+           FROM scripts
+           WHERE parent_script_id = ? OR id = ?`,
+          [parentScriptId, parentScriptId]
+        );
+        const nextVariationNumber = (maxVariation.max_var || 0) + 1;
+
+        // If the existing script doesn't have a parent (original script), mark it as variation #1
+        if (!existingAtPosition.is_variation && !existingAtPosition.parent_script_id) {
+          await this.query(
+            `UPDATE scripts SET variation_number = 1 WHERE id = ?`,
+            [existingAtPosition.id]
+          );
+        }
+
+        // Insert variation with parent reference
+        await this.query(
+          `INSERT INTO scripts (
+            url, content_hash, script_type, size_bytes, content_preview,
+            page_url, discovery_context, status,
+            script_position, parent_script_id, is_variation, variation_number,
+            access_count, last_accessed
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?, 1, ?, 1, CURRENT_TIMESTAMP)`,
+          [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
+           scriptPosition, parentScriptId, nextVariationNumber]
+        );
+
+        // Query back the inserted record
+        const inserted = await this.queryOne(
+          'SELECT id, status FROM scripts WHERE url = ? AND content_hash = ?',
+          [url, contentHash]
+        );
+
+        return {
+          scriptId: inserted.id,
+          status: inserted.status,
+          isNew: true,
+          isVariation: true,
+          parentScriptId: parentScriptId,
+          variationNumber: nextVariationNumber,
+          accessCount: 1
+        };
+      }
+    }
+
+    // Insert new script (not a variation)
     await this.query(
       `INSERT INTO scripts (
         url, content_hash, script_type, size_bytes, content_preview,
-        page_url, discovery_context, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval')`,
-      [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext]
+        page_url, discovery_context, status,
+        script_position, access_count, last_accessed
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, CURRENT_TIMESTAMP)`,
+      [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
+       scriptType === 'inline' ? scriptPosition : null]
     );
 
     // Query back the inserted record to get its ID (workaround for sql.js last_insert_rowid issue)
@@ -357,7 +432,9 @@ class DatabaseManager {
     return {
       scriptId: inserted.id,
       status: inserted.status,
-      isNew: true
+      isNew: true,
+      isVariation: false,
+      accessCount: 1
     };
   }
 

@@ -276,7 +276,7 @@
      */
     async processScript(script, loadType, index = 0, context = null) {
       const scriptInfo = {
-        id: this.generateScriptId(script),
+        id: await this.generateScriptId(script, index),
         src: script.src || null,
         inline: !script.src,
         type: script.type || 'text/javascript',
@@ -346,17 +346,17 @@
     /**
      * Generate a unique identifier for a script
      * @param {HTMLScriptElement} script - The script element
-     * @returns {string} Unique identifier
+     * @param {number} index - Script index/position in page
+     * @returns {Promise<string>} Unique identifier
      */
-    generateScriptId(script) {
+    async generateScriptId(script, index = 0) {
       if (script.src) {
         // Use URL for external scripts
         const url = new URL(script.src, window.location.href);
         return url.href;
       } else {
-        // For inline scripts, use position or generate ID
-        const scriptIndex = Array.from(document.querySelectorAll('script')).indexOf(script);
-        return `inline-script-${scriptIndex}-${Date.now()}`;
+        // For inline scripts, use position-based naming so variations share the same URL
+        return `inline-script-position-${index}`;
       }
     }
 
@@ -843,11 +843,13 @@
           sizeBytes: scriptInfo.content ? scriptInfo.content.length : 0,
           contentPreview: scriptInfo.content ? scriptInfo.content.substring(0, 500) : null,
           pageUrl: window.location.href,
+          scriptPosition: scriptInfo.inline ? scriptInfo.index : null,  // NEW: Track inline script position
           discoveryContext: JSON.stringify({
             loadType: scriptInfo.loadType,
             timestamp: scriptInfo.timestamp,
             userAgent: navigator.userAgent,
-            sessionId: this.sessionId
+            sessionId: this.sessionId,
+            scriptIndex: scriptInfo.index  // Include index in context as well
           })
         };
 
