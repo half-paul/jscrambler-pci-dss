@@ -330,13 +330,13 @@ app.post('/api/admin/auth/login', generalLimiter, async (req, res) => {
       mfaRequired: false,
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      admin: {
-        id: admin.id,
-        username: admin.username,
-        email: admin.email,
-        role: admin.role
-      }
-    });
+              admin: {
+                id: admin.id,
+                username: admin.username,
+                email: admin.email,
+                role: admin.role,
+                mfa_enabled: admin.mfa_enabled
+              }    });
 
   } catch (error) {
     console.error('[Auth] Login error:', error.message);
@@ -442,7 +442,7 @@ app.post('/api/admin/auth/verify-mfa', generalLimiter, async (req, res) => {
         username: admin.username,
         email: admin.email,
         role: admin.role,
-        mfaEnabled: admin.mfa_enabled
+        mfa_enabled: admin.mfa_enabled
       }
     });
 
@@ -840,356 +840,153 @@ app.post('/api/scripts/violation', violationLimiter, async (req, res) => {
 });
 
 // ============================================================================
+
 // ADMIN API ENDPOINTS (Protected)
+
 // ============================================================================
 
+
+
 /**
- * GET /api/admin/scripts/pending
- * Get scripts pending approval
+
+ * GET /api/admin/users
+
+ * Get all admin users
+
  */
-app.get('/api/admin/scripts/pending', authenticate, async (req, res) => {
+
+app.get('/api/admin/users', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+
   try {
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = parseInt(req.query.offset) || 0;
 
-    const scripts = await db.getPendingApprovals(limit, offset);
+    const users = await db.getUsers();
 
-    res.json({
-      success: true,
-      data: scripts,
-      count: scripts.length,
-      limit,
-      offset
-    });
+    res.json({ success: true, data: users });
 
   } catch (error) {
-    console.error('[Admin] Error fetching pending scripts:', error.message);
-    res.status(500).json({ error: 'Failed to fetch pending scripts' });
+
+    console.error('[Admin] Error fetching users:', error.message);
+
+    res.status(500).json({ error: 'Failed to fetch users' });
+
   }
+
 });
 
+
+
 /**
- * POST /api/admin/scripts/:id/approve
- * Approve a script
+
+ * POST /api/admin/users
+
+ * Create a new admin user
+
  */
-app.post('/api/admin/scripts/:id/approve', authenticate, requireRole('reviewer', 'admin', 'super_admin'), async (req, res) => {
+
+app.post('/api/admin/users', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+
   try {
-    const scriptId = parseInt(req.params.id);
-    const {
-      businessJustification,
-      scriptPurpose,
-      scriptOwner,
-      riskLevel,
-      approvalNotes
-    } = req.body;
 
-    // Validate required fields
-    if (!businessJustification || !scriptPurpose) {
-      return res.status(400).json({
-        error: 'Missing required fields',
-        required: ['businessJustification', 'scriptPurpose']
-      });
-    }
+    const { username, email, password, role, is_active } = req.body;
 
-    // Check if script exists to provide accurate 404 feedback
-    const scriptExists = await db.queryOne('SELECT id FROM scripts WHERE id = ?', [scriptId]);
-    if (!scriptExists) {
-      return res.status(404).json({ error: 'Script not found or does not exist.' });
-    }
+    const newUser = await db.createUser({ username, email, password, role, is_active });
 
-    await db.approveScript(scriptId, {
-      approvedBy: req.admin.username,
-      businessJustification,
-      scriptPurpose,
-      scriptOwner,
-      riskLevel: riskLevel || 'medium',
-      approvalNotes
-    });
-
-    console.log(`[Admin] Script ${scriptId} approved by ${req.admin.username}`);
-
-    res.json({
-      success: true,
-      message: 'Script approved successfully'
-    });
+    res.status(201).json({ success: true, data: newUser });
 
   } catch (error) {
-    console.error('[Admin] Approval error:', error.message);
-    res.status(500).json({ error: 'Approval failed' });
+
+    console.error('[Admin] Error creating user:', error.message);
+
+    res.status(500).json({ error: 'Failed to create user' });
+
   }
+
 });
 
-/**
- * POST /api/admin/scripts/:id/reject
- * Reject a script
- */
-app.post('/api/admin/scripts/:id/reject', authenticate, requireRole('reviewer', 'admin', 'super_admin'), async (req, res) => {
-  try {
-    console.log('[Admin] Reject endpoint hit for script:', req.params.id);
-    const scriptId = parseInt(req.params.id);
-    const { rejectionReason, notes } = req.body;
 
-    if (!rejectionReason) {
-      return res.status(400).json({
-        error: 'Rejection reason is required'
-      });
+
+/**
+
+ * PUT /api/admin/users/:id
+
+ * Update an admin user
+
+ */
+
+app.put('/api/admin/users/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+
+  try {
+
+    const userId = parseInt(req.params.id);
+
+    const { username, email, password, role, is_active } = req.body;
+
+    const updatedUser = await db.updateUser(userId, { username, email, password, role, is_active });
+
+    if (!updatedUser) {
+
+      return res.status(404).json({ error: 'User not found' });
+
     }
 
-    const success = await db.rejectScript(scriptId, {
-      rejectedBy: req.admin.username,
-      rejectionReason,
-      notes
-    });
+    res.json({ success: true, data: updatedUser });
+
+  } catch (error) {
+
+    console.error('[Admin] Error updating user:', error.message);
+
+    res.status(500).json({ error: 'Failed to update user' });
+
+  }
+
+});
+
+
+
+/**
+
+ * DELETE /api/admin/users/:id
+
+ * Delete an admin user
+
+ */
+
+app.delete('/api/admin/users/:id', authenticate, requireRole('admin', 'super_admin'), async (req, res) => {
+
+  try {
+
+    const userId = parseInt(req.params.id);
+
+    const success = await db.deleteUser(userId);
 
     if (!success) {
-      return res.status(404).json({ error: 'Script not found' });
+
+      return res.status(404).json({ error: 'User not found' });
+
     }
 
-    console.log(`[Admin] Script ${scriptId} rejected by ${req.admin.username}`);
-
-    res.json({
-      success: true,
-      message: 'Script rejected successfully'
-    });
+    res.json({ success: true, message: 'User deleted successfully' });
 
   } catch (error) {
-    console.error('[Admin] Rejection error:', error.message);
-    res.status(500).json({ error: 'Rejection failed' });
+
+    console.error('[Admin] Error deleting user:', error.message);
+
+    res.status(500).json({ error: 'Failed to delete user' });
+
   }
+
 });
 
-/**
- * GET /api/admin/violations
- * Get integrity violations
- */
-app.get('/api/admin/violations', authenticate, async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = parseInt(req.query.offset) || 0;
 
-    const violations = await db.getRecentViolations(limit, offset);
 
-    res.json({
-      success: true,
-      data: violations,
-      count: violations.length,
-      limit,
-      offset
-    });
 
-  } catch (error) {
-    console.error('[Admin] Error fetching violations:', error.message);
-    res.status(500).json({ error: 'Failed to fetch violations' });
-  }
-});
 
 /**
- * GET /api/admin/scripts/search
- * Search scripts (MUST be before /:id route)
- */
-app.get('/api/admin/scripts/search', authenticate, async (req, res) => {
-  try {
-    const { q, status, type, limit, offset } = req.query;
 
-    const scripts = await db.searchScripts({
-      query: q,
-      status,
-      scriptType: type,
-      limit: parseInt(limit) || 50,
-      offset: parseInt(offset) || 0
-    });
-
-    res.json({
-      success: true,
-      data: scripts,
-      count: scripts.length
-    });
-
-  } catch (error) {
-    console.error('[Admin] Search error:', error.message);
-    res.status(500).json({ error: 'Search failed' });
-  }
-});
-
-/**
- * GET /api/admin/scripts/:id
- * Get script details
- */
-app.get('/api/admin/scripts/:id', authenticate, async (req, res) => {
-  try {
-    const scriptId = parseInt(req.params.id);
-    const script = await db.getScriptById(scriptId);
-
-    if (!script) {
-      return res.status(404).json({ error: 'Script not found' });
-    }
-
-    // Get audit log
-    const auditLog = await db.getScriptAuditLog(scriptId, 20);
-
-    res.json({
-      success: true,
-      script,
-      auditLog
-    });
-
-  } catch (error) {
-    console.error('[Admin] Error fetching script:', error.message);
-    res.status(500).json({ error: 'Failed to fetch script' });
-  }
-});
-
-/**
- * PUT /api/admin/scripts/:id/update
- * Update script properties (except dates)
- */
-app.put('/api/admin/scripts/:id/update', authenticate, requireRole('reviewer', 'admin', 'super_admin'), async (req, res) => {
-  try {
-    console.log('[Admin] Update endpoint hit for script:', req.params.id);
-    const scriptId = parseInt(req.params.id);
-    const {
-      status,
-      businessJustification,
-      scriptPurpose,
-      scriptOwner,
-      riskLevel,
-      approvalNotes,
-      rejectionReason
-    } = req.body;
-
-    // Get current script
-    const currentScript = await db.getScriptById(scriptId);
-    if (!currentScript) {
-      return res.status(404).json({ error: 'Script not found' });
-    }
-
-    // Build update query
-    const updates = [];
-    const params = [];
-
-    if (status !== undefined) {
-      const validStatuses = ['pending_approval', 'approved', 'rejected', 'flagged'];
-      if (!validStatuses.includes(status)) {
-        return res.status(400).json({
-          error: 'Invalid status',
-          validStatuses
-        });
-      }
-      updates.push('status = ?');
-      params.push(status);
-
-      // If changing to approved/rejected, update approved_at and approved_by
-      if ((status === 'approved' || status === 'rejected') && currentScript.status !== status) {
-        updates.push('approved_at = CURRENT_TIMESTAMP');
-        updates.push('approved_by = ?');
-        params.push(req.admin.username);
-      }
-    }
-
-    if (businessJustification !== undefined) {
-      updates.push('business_justification = ?');
-      params.push(businessJustification);
-    }
-
-    if (scriptPurpose !== undefined) {
-      updates.push('script_purpose = ?');
-      params.push(scriptPurpose);
-    }
-
-    if (scriptOwner !== undefined) {
-      updates.push('script_owner = ?');
-      params.push(scriptOwner);
-    }
-
-    if (riskLevel !== undefined) {
-      const validRiskLevels = ['low', 'medium', 'high', 'critical'];
-      if (riskLevel && !validRiskLevels.includes(riskLevel)) {
-        return res.status(400).json({
-          error: 'Invalid risk level',
-          validRiskLevels
-        });
-      }
-      updates.push('risk_level = ?');
-      params.push(riskLevel || null);
-    }
-
-    if (approvalNotes !== undefined) {
-      updates.push('approval_notes = ?');
-      params.push(approvalNotes);
-    }
-
-    if (rejectionReason !== undefined) {
-      updates.push('rejection_reason = ?');
-      params.push(rejectionReason);
-    }
-
-    if (updates.length === 0) {
-      return res.status(400).json({ error: 'No fields to update' });
-    }
-
-    // Execute update
-    params.push(scriptId);
-    const sql = `UPDATE scripts SET ${updates.join(', ')} WHERE id = ?`;
-    const result = await db.query(sql, params);
-
-    if (result.rowCount === 0) {
-      return res.status(404).json({ error: 'Script not found' });
-    }
-
-    console.log(`[Admin] Script ${scriptId} updated by ${req.admin.username}`);
-
-    res.json({
-      success: true,
-      message: 'Script updated successfully'
-    });
-
-  } catch (error) {
-    console.error('[Admin] Update error:', error.message);
-    res.status(500).json({ error: 'Update failed' });
-  }
-});
-
-/**
- * POST /api/admin/violations/:id/review
- * Update violation review status
- */
-app.post('/api/admin/violations/:id/review', authenticate, requireRole('reviewer', 'admin', 'super_admin'), async (req, res) => {
-  try {
-    const violationId = parseInt(req.params.id);
-    const { reviewStatus, reviewNotes } = req.body;
-
-    const validStatuses = ['investigating', 'resolved', 'false_positive', 'confirmed_attack'];
-    if (!validStatuses.includes(reviewStatus)) {
-      return res.status(400).json({
-        error: 'Invalid review status',
-        validStatuses
-      });
-    }
-
-    const success = await db.updateViolationReview(violationId, {
-      reviewStatus,
-      reviewedBy: req.admin.username,
-      reviewNotes
-    });
-
-    if (!success) {
-      return res.status(404).json({ error: 'Violation not found' });
-    }
-
-    res.json({
-      success: true,
-      message: 'Violation review updated'
-    });
-
-  } catch (error) {
-    console.error('[Admin] Review error:', error.message);
-    res.status(500).json({ error: 'Review update failed' });
-  }
-});
-
-/**
  * GET /api/admin/dashboard
+
  * Get dashboard statistics
+
  */
 app.get('/api/admin/dashboard', authenticate, async (req, res) => {
   try {
@@ -1208,6 +1005,224 @@ app.get('/api/admin/dashboard', authenticate, async (req, res) => {
   } catch (error) {
     console.error('[Admin] Dashboard error:', error.message);
     res.status(500).json({ error: 'Failed to fetch dashboard data' });
+  }
+});
+
+/**
+ * GET /api/admin/scripts/pending
+ * Get all scripts pending approval
+ */
+app.get('/api/admin/scripts/pending', authenticate, async (req, res) => {
+  try {
+    const scripts = await db.query(
+      `SELECT * FROM scripts
+       WHERE status = 'pending_approval'
+       ORDER BY first_seen DESC
+       LIMIT 100`
+    );
+
+    res.json({
+      success: true,
+      data: scripts,
+      count: scripts.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Pending scripts error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch pending scripts' });
+  }
+});
+
+/**
+ * GET /api/admin/violations
+ * Get integrity violations
+ */
+app.get('/api/admin/violations', authenticate, async (req, res) => {
+  try {
+    const violations = await db.query(
+      `SELECT * FROM integrity_violations
+       ORDER BY detected_at DESC
+       LIMIT 100`
+    );
+
+    res.json({
+      success: true,
+      data: violations,
+      count: violations.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Violations error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch violations' });
+  }
+});
+
+/**
+ * GET /api/admin/scripts/search
+ * Search/filter scripts in inventory
+ */
+app.get('/api/admin/scripts/search', authenticate, async (req, res) => {
+  try {
+    const { q, status, type, limit = 100 } = req.query;
+
+    let query = 'SELECT * FROM scripts WHERE 1=1';
+    const params = [];
+
+    if (q) {
+      query += ' AND (url LIKE ? OR content_preview LIKE ?)';
+      params.push(`%${q}%`, `%${q}%`);
+    }
+
+    if (status) {
+      query += ' AND status = ?';
+      params.push(status);
+    }
+
+    if (type) {
+      query += ' AND script_type = ?';
+      params.push(type);
+    }
+
+    query += ' ORDER BY first_seen DESC LIMIT ?';
+    params.push(parseInt(limit));
+
+    const scripts = await db.query(query, params);
+
+    res.json({
+      success: true,
+      data: scripts,
+      count: scripts.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Search error:', error.message);
+    res.status(500).json({ error: 'Failed to search scripts' });
+  }
+});
+
+/**
+ * POST /api/admin/scripts/:id/approve
+ * Approve a script
+ */
+app.post('/api/admin/scripts/:id/approve', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes } = req.body;
+
+    await db.query(
+      `UPDATE scripts SET
+        status = 'approved',
+        business_justification = ?,
+        script_purpose = ?,
+        script_owner = ?,
+        risk_level = ?,
+        approval_notes = ?,
+        approved_by = ?,
+        approved_at = CURRENT_TIMESTAMP
+      WHERE id = ?`,
+      [businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes, req.admin.username, id]
+    );
+
+    console.log(`[Admin] Script ${id} approved by ${req.admin.username}`);
+
+    res.json({ success: true, message: 'Script approved successfully' });
+
+  } catch (error) {
+    console.error('[Admin] Approve error:', error.message);
+    res.status(500).json({ error: 'Failed to approve script' });
+  }
+});
+
+/**
+ * POST /api/admin/scripts/:id/reject
+ * Reject a script
+ */
+app.post('/api/admin/scripts/:id/reject', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rejectionReason, notes } = req.body;
+
+    await db.query(
+      `UPDATE scripts SET
+        status = 'rejected',
+        rejection_reason = ?,
+        approval_notes = ?,
+        approved_by = ?,
+        approved_at = CURRENT_TIMESTAMP
+      WHERE id = ?`,
+      [rejectionReason, notes, req.admin.username, id]
+    );
+
+    console.log(`[Admin] Script ${id} rejected by ${req.admin.username}`);
+
+    res.json({ success: true, message: 'Script rejected successfully' });
+
+  } catch (error) {
+    console.error('[Admin] Reject error:', error.message);
+    res.status(500).json({ error: 'Failed to reject script' });
+  }
+});
+
+/**
+ * GET /api/admin/scripts/:id
+ * Get script details
+ */
+app.get('/api/admin/scripts/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const script = await db.queryOne('SELECT * FROM scripts WHERE id = ?', [id]);
+
+    if (!script) {
+      return res.status(404).json({ error: 'Script not found' });
+    }
+
+    const auditLog = await db.query(
+      'SELECT * FROM approval_audit_log WHERE script_id = ? ORDER BY performed_at DESC',
+      [id]
+    );
+
+    res.json({
+      success: true,
+      script,
+      auditLog
+    });
+
+  } catch (error) {
+    console.error('[Admin] Get script error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch script details' });
+  }
+});
+
+/**
+ * PUT /api/admin/scripts/:id/update
+ * Update script details
+ */
+app.put('/api/admin/scripts/:id/update', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes, rejectionReason } = req.body;
+
+    await db.query(
+      `UPDATE scripts SET
+        status = ?,
+        business_justification = ?,
+        script_purpose = ?,
+        script_owner = ?,
+        risk_level = ?,
+        approval_notes = ?,
+        rejection_reason = ?
+      WHERE id = ?`,
+      [status, businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes, rejectionReason, id]
+    );
+
+    console.log(`[Admin] Script ${id} updated by ${req.admin.username}`);
+
+    res.json({ success: true, message: 'Script updated successfully' });
+
+  } catch (error) {
+    console.error('[Admin] Update error:', error.message);
+    res.status(500).json({ error: 'Failed to update script' });
   }
 });
 
@@ -1279,7 +1294,8 @@ async function queueNotification(notification) {
 
 // 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Endpoint not found' });
+  res.
+  status(404).json({ error: 'Endpoint not found' });
 });
 
 // Global error handler

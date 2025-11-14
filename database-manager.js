@@ -663,6 +663,79 @@ class DatabaseManager {
   }
 
   /**
+   * Get all admin users
+   */
+  async getUsers() {
+    const users = await this.query('SELECT id, username, email, role, is_active, created_at, last_login_at FROM admin_users');
+    return users.rows || users;
+  }
+
+  /**
+   * Create a new admin user
+   */
+  async createUser(userData) {
+    const { username, email, password, role, is_active } = userData;
+    const passwordHash = await require('bcrypt').hash(password, 10);
+    const result = await this.query(
+      'INSERT INTO admin_users (username, email, password_hash, role, is_active) VALUES (?, ?, ?, ?, ?)',
+      [username, email, passwordHash, role, is_active]
+    );
+    const newUserId = result.lastInsertRowid || result.rows[0]?.id;
+    const newUser = await this.queryOne('SELECT id, username, email, role, is_active FROM admin_users WHERE id = ?', [newUserId]);
+    return newUser;
+  }
+
+  /**
+   * Update an admin user
+   */
+  async updateUser(userId, userData) {
+    const { username, email, password, role, is_active } = userData;
+    const updates = [];
+    const params = [];
+
+    if (username) {
+      updates.push('username = ?');
+      params.push(username);
+    }
+    if (email) {
+      updates.push('email = ?');
+      params.push(email);
+    }
+    if (password) {
+      const passwordHash = await require('bcrypt').hash(password, 10);
+      updates.push('password_hash = ?');
+      params.push(passwordHash);
+    }
+    if (role) {
+      updates.push('role = ?');
+      params.push(role);
+    }
+    if (is_active !== undefined) {
+      updates.push('is_active = ?');
+      params.push(is_active);
+    }
+
+    if (updates.length === 0) {
+      return this.queryOne('SELECT id, username, email, role, is_active FROM admin_users WHERE id = ?', [userId]);
+    }
+
+    params.push(userId);
+    const sql = `UPDATE admin_users SET ${updates.join(', ')} WHERE id = ?`;
+    await this.query(sql, params);
+
+    return this.queryOne('SELECT id, username, email, role, is_active FROM admin_users WHERE id = ?', [userId]);
+  }
+
+  /**
+   * Delete an admin user
+   */
+  async deleteUser(userId) {
+    const result = await this.query('DELETE FROM admin_users WHERE id = ?', [userId]);
+    return result.rowCount > 0;
+  }
+
+
+  /**
    * Clean up old records (data retention)
    */
   async cleanupOldRecords() {

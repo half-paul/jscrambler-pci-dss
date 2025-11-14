@@ -338,6 +338,13 @@
         .logout-btn {
             float: right;
         }
+
+        /* Small button styles for user management */
+        button.small {
+            padding: 6px 12px;
+            font-size: 12px;
+            margin: 2px;
+        }
     </style>
 </head>
 <body>
@@ -358,7 +365,7 @@
                 <input type="password" id="password" placeholder="Enter your password" autocomplete="current-password">
             </div>
 
-            <button onclick="login()" style="width: 100%;">Login</button>
+            <button id="loginButton" style="width: 100%;">Login</button>
 
             <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ecf0f1;">
                 <p style="font-size: 12px; color: #7f8c8d; margin-bottom: 10px;">
@@ -437,14 +444,15 @@
 
             <!-- Tabs -->
             <div class="tabs">
-                <button class="tab active" onclick="showTab('pending')">Pending Approvals</button>
-                <button class="tab" onclick="showTab('violations')">Violations</button>
-                <button class="tab" onclick="showTab('inventory')">Script Inventory</button>
-                <button class="tab" onclick="showTab('security')">Security Settings</button>
+                <button class="tab active" onclick="showTab('inventory', this)">Script Inventory</button>
+                <button class="tab" onclick="showTab('pending', this)">Pending Approvals</button>
+                <button class="tab" onclick="showTab('violations', this)">Violations</button>
+                <button class="tab" onclick="showTab('security', this)">Security Settings</button>
+                <button class="tab" onclick="showTab('users', this)">User Management</button>
             </div>
 
             <!-- Pending Approvals Tab -->
-            <div id="pending" class="content-section active">
+            <div id="pending" class="content-section">
                 <h2 style="margin-bottom: 20px;">Scripts Pending Approval</h2>
                 <div id="pendingContent" class="loading">Loading...</div>
             </div>
@@ -456,8 +464,24 @@
             </div>
 
             <!-- Inventory Tab -->
-            <div id="inventory" class="content-section">
+            <div id="inventory" class="content-section active">
                 <h2 style="margin-bottom: 20px;">Script Inventory</h2>
+                <div class="filter-bar" style="margin-bottom: 20px; display: flex; gap: 10px; align-items: center;">
+                    <input type="text" id="searchQuery" placeholder="Search by URL or content..." style="flex-grow: 1;">
+                    <select id="statusFilter">
+                        <option value="">All Statuses</option>
+                        <option value="pending_approval">Pending</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                        <option value="flagged">Flagged</option>
+                    </select>
+                    <select id="typeFilter">
+                        <option value="">All Types</option>
+                        <option value="inline">Inline</option>
+                        <option value="external">External</option>
+                    </select>
+                    <button onclick="searchInventory()">Search</button>
+                </div>
                 <div id="inventoryContent" class="loading">Loading...</div>
             </div>
 
@@ -510,97 +534,56 @@
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- Approval Modal -->
-    <div id="approvalModal" class="modal">
+            <!-- User Management Tab -->
+            <div id="users" class="content-section">
+                <h2 style="margin-bottom: 20px;">User Management</h2>
+                <div style="margin-bottom: 20px;">
+                    <button class="success" onclick="openUserModal()">Add New User</button>
+                </div>
+                <div id="usersContent">
+                    <!-- User table will be rendered here -->
+                </div>
+            </div>
+
+    <!-- User Modal -->
+    <div id="userModal" class="modal">
         <div class="modal-content">
             <div class="modal-header">
-                <h2>Approve Script</h2>
+                <h2 id="userModalTitle">Add New User</h2>
             </div>
-            <div id="approvalError" class="error-message" style="display:none;"></div>
-            <div class="info-grid">
-                <div class="info-label">URL:</div>
-                <div id="modalUrl">-</div>
-                <div class="info-label">Hash:</div>
-                <div id="modalHash" style="word-break: break-all; font-size: 12px;">-</div>
-                <div class="info-label">Type:</div>
-                <div id="modalType">-</div>
-                <div class="info-label">First Seen:</div>
-                <div id="modalFirstSeen">-</div>
+            <div id="userError" class="error-message" style="display:none;"></div>
+            <div class="form-group">
+                <label for="userUsername">Username *</label>
+                <input type="text" id="userUsername" required>
             </div>
             <div class="form-group">
-                <label for="businessJustification">Business Justification *</label>
-                <textarea id="businessJustification" rows="3" required></textarea>
+                <label for="userEmail">Email *</label>
+                <input type="email" id="userEmail" required>
             </div>
             <div class="form-group">
-                <label for="scriptPurpose">Script Purpose *</label>
-                <input type="text" id="scriptPurpose" required>
+                <label for="userPassword">Password (leave blank to keep unchanged)</label>
+                <input type="password" id="userPassword">
             </div>
             <div class="form-group">
-                <label for="scriptOwner">Script Owner</label>
-                <input type="text" id="scriptOwner">
-            </div>
-            <div class="form-group">
-                <label for="riskLevel">Risk Level</label>
-                <select id="riskLevel">
-                    <option value="low">Low</option>
-                    <option value="medium" selected>Medium</option>
-                    <option value="high">High</option>
-                    <option value="critical">Critical</option>
+                <label for="userRole">Role</label>
+                <select id="userRole">
+                    <option value="viewer">Viewer</option>
+                    <option value="reviewer">Reviewer</option>
+                    <option value="admin">Admin</option>
+                    <option value="super_admin">Super Admin</option>
                 </select>
             </div>
             <div class="form-group">
-                <label for="approvalNotes">Notes</label>
-                <textarea id="approvalNotes" rows="2"></textarea>
+                <label for="userIsActive">Status</label>
+                <select id="userIsActive">
+                    <option value="1">Active</option>
+                    <option value="0">Inactive</option>
+                </select>
             </div>
             <div class="modal-actions">
-                <button class="success" onclick="submitApproval()">Approve</button>
-                <button class="secondary" onclick="closeModal()">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Rejection Modal -->
-    <div id="rejectionModal" class="modal">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h2>Reject Script</h2>
-            </div>
-            <div id="rejectionError" class="error-message" style="display:none;"></div>
-            <div class="info-grid">
-                <div class="info-label">URL:</div>
-                <div id="rejectModalUrl">-</div>
-            </div>
-            <div class="form-group">
-                <label for="rejectionReason">Rejection Reason *</label>
-                <textarea id="rejectionReason" rows="3" required></textarea>
-            </div>
-            <div class="form-group">
-                <label for="rejectionNotes">Additional Notes</label>
-                <textarea id="rejectionNotes" rows="2"></textarea>
-            </div>
-            <div class="modal-actions">
-                <button class="danger" onclick="submitRejection()">Reject</button>
-                <button class="secondary" onclick="closeModal()">Cancel</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- Script Details Modal -->
-    <div id="scriptDetailsModal" class="modal">
-        <div class="modal-content" style="max-width: 900px;">
-            <div class="modal-header">
-                <h2>Script Details</h2>
-            </div>
-            <div id="scriptDetailsError" class="error-message" style="display:none;"></div>
-            <div id="scriptDetailsContent" class="loading">Loading...</div>
-            <div class="modal-actions">
-                <button id="editScriptBtn" class="primary" onclick="toggleEditMode()" style="display:none;">Edit</button>
-                <button id="saveScriptBtn" class="success" onclick="saveScriptChanges()" style="display:none;">Save Changes</button>
-                <button id="cancelEditBtn" class="secondary" onclick="cancelEdit()" style="display:none;">Cancel</button>
-                <button id="closeDetailsBtn" class="secondary" onclick="closeScriptDetailsModal()">Close</button>
+                <button class="success" onclick="saveUser()">Save</button>
+                <button class="secondary" onclick="closeUserModal()">Cancel</button>
             </div>
         </div>
     </div>
@@ -663,6 +646,109 @@
                     <button onclick="copyBackupCodes()" class="secondary" style="margin-right: 10px;">Copy to Clipboard</button>
                     <button onclick="closeMfaSetupModal()" class="success">Done</button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Approval Modal -->
+    <div id="approvalModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Approve Script</h2>
+            </div>
+            <div id="approvalError" class="error-message" style="display:none;"></div>
+            <div class="info-grid">
+                <div class="info-label">URL:</div>
+                <div id="modalUrl" style="word-break: break-all;"></div>
+                <div class="info-label">Hash:</div>
+                <div id="modalHash" style="font-family: monospace; font-size: 12px; word-break: break-all;"></div>
+                <div class="info-label">Type:</div>
+                <div id="modalType"></div>
+                <div class="info-label">First Seen:</div>
+                <div id="modalFirstSeen"></div>
+            </div>
+            <div class="form-group">
+                <label for="businessJustification">Business Justification *</label>
+                <textarea id="businessJustification" rows="3" required></textarea>
+            </div>
+            <div class="form-group">
+                <label for="scriptPurpose">Script Purpose *</label>
+                <input type="text" id="scriptPurpose" required>
+            </div>
+            <div class="form-group">
+                <label for="scriptOwner">Script Owner</label>
+                <input type="text" id="scriptOwner">
+            </div>
+            <div class="form-group">
+                <label for="riskLevel">Risk Level</label>
+                <select id="riskLevel">
+                    <option value="">None</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="approvalNotes">Notes</label>
+                <textarea id="approvalNotes" rows="3"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="success" onclick="submitApproval()">Approve</button>
+                <button class="secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Rejection Modal -->
+    <div id="rejectionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Reject Script</h2>
+            </div>
+            <div id="rejectionError" class="error-message" style="display:none;"></div>
+            <div class="info-grid">
+                <div class="info-label">URL:</div>
+                <div id="rejectModalUrl" style="word-break: break-all;"></div>
+            </div>
+            <div class="form-group">
+                <label for="rejectionReason">Rejection Reason *</label>
+                <textarea id="rejectionReason" rows="3" required></textarea>
+            </div>
+            <div class="form-group">
+                <label for="rejectionRiskLevel">Risk Level</label>
+                <select id="rejectionRiskLevel">
+                    <option value="">None</option>
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="rejectionNotes">Notes</label>
+                <textarea id="rejectionNotes" rows="3"></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="danger" onclick="submitRejection()">Reject</button>
+                <button class="secondary" onclick="closeModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Script Details Modal -->
+    <div id="scriptDetailsModal" class="modal">
+        <div class="modal-content" style="max-width: 900px;">
+            <div class="modal-header">
+                <h2>Script Details</h2>
+            </div>
+            <div id="scriptDetailsError" class="error-message" style="display:none;"></div>
+            <div id="scriptDetailsContent"></div>
+            <div class="modal-actions" style="margin-top: 20px;">
+                <button id="editScriptBtn" class="success" onclick="toggleEditMode()" style="display: none;">Edit</button>
+                <button id="saveScriptBtn" class="success" onclick="saveScriptChanges()" style="display: none;">Save Changes</button>
+                <button id="cancelEditBtn" class="secondary" onclick="cancelEdit()" style="display: none;">Cancel</button>
+                <button id="closeDetailsBtn" class="secondary" onclick="closeScriptDetailsModal()">Close</button>
             </div>
         </div>
     </div>
@@ -949,8 +1035,22 @@
             renderViolations(data.data || []);
         }
 
+        function searchInventory() {
+            fetchInventory();
+        }
+
         async function fetchInventory() {
-            const data = await apiCall('/api/admin/scripts/search?limit=100');
+            const query = document.getElementById('searchQuery')?.value || '';
+            const status = document.getElementById('statusFilter')?.value || '';
+            const type = document.getElementById('typeFilter')?.value || '';
+
+            const params = new URLSearchParams();
+            if (query) params.append('q', query);
+            if (status) params.append('status', status);
+            if (type) params.append('type', type);
+            params.append('limit', '100');
+
+            const data = await apiCall(`/api/admin/scripts/search?${params.toString()}`);
             renderInventory(data.data || []);
         }
 
@@ -982,8 +1082,8 @@
                                 <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${script.page_url}</td>
                                 <td>
                                     <div class="action-buttons">
-                                        <button class="success" onclick="openApprovalModal(${script.id}, '${escapeHtml(script.url)}', '${script.content_hash}', '${script.script_type}', '${script.first_seen}')">Approve</button>
-                                        <button class="danger" onclick="openRejectionModal(${script.id}, '${escapeHtml(script.url)}')">Reject</button>
+                                        <button class="success" data-script-id="${script.id}" data-script-url="${escapeHtml(script.url)}" data-script-hash="${script.content_hash}" data-script-type="${script.script_type}" data-script-first-seen="${script.first_seen}" onclick="openApprovalModalFromButton(this)">Approve</button>
+                                        <button class="danger" data-script-id="${script.id}" data-script-url="${escapeHtml(script.url)}" onclick="openRejectionModalFromButton(this)">Reject</button>
                                     </div>
                                 </td>
                             </tr>
@@ -1036,10 +1136,10 @@
             }
 
             const statusColors = {
-                'approved': 'success',
-                'pending_approval': 'warning',
-                'rejected': 'danger',
-                'flagged': 'warning'
+                'approved': 'approved',
+                'pending_approval': 'pending',
+                'rejected': 'rejected',
+                'flagged': 'pending'
             };
 
             const statusLabels = {
@@ -1098,8 +1198,20 @@
             document.getElementById('scriptOwner').value = '';
             document.getElementById('approvalNotes').value = '';
             document.getElementById('approvalError').style.display = 'none';
+            
+            // Set default risk level to "low"
+            document.getElementById('riskLevel').value = 'low';
 
             document.getElementById('approvalModal').classList.add('active');
+        }
+
+        function openApprovalModalFromButton(button) {
+            const id = parseInt(button.getAttribute('data-script-id'));
+            const url = button.getAttribute('data-script-url');
+            const hash = button.getAttribute('data-script-hash');
+            const type = button.getAttribute('data-script-type');
+            const firstSeen = button.getAttribute('data-script-first-seen');
+            openApprovalModal(id, url, hash, type, firstSeen);
         }
 
         function openRejectionModal(id, url) {
@@ -1109,8 +1221,17 @@
             document.getElementById('rejectionReason').value = '';
             document.getElementById('rejectionNotes').value = '';
             document.getElementById('rejectionError').style.display = 'none';
+            
+            // Set default risk level to "high"
+            document.getElementById('rejectionRiskLevel').value = 'high';
 
             document.getElementById('rejectionModal').classList.add('active');
+        }
+
+        function openRejectionModalFromButton(button) {
+            const id = parseInt(button.getAttribute('data-script-id'));
+            const url = button.getAttribute('data-script-url');
+            openRejectionModal(id, url);
         }
 
         function closeModal() {
@@ -1472,7 +1593,7 @@
                         businessJustification,
                         scriptPurpose,
                         scriptOwner: document.getElementById('scriptOwner').value,
-                        riskLevel: document.getElementById('riskLevel').value,
+                        riskLevel: document.getElementById('riskLevel').value || null,
                         approvalNotes: document.getElementById('approvalNotes').value
                     })
                 });
@@ -1497,6 +1618,7 @@
                     method: 'POST',
                     body: JSON.stringify({
                         rejectionReason,
+                        riskLevel: document.getElementById('rejectionRiskLevel').value || null,
                         notes: document.getElementById('rejectionNotes').value
                     })
                 });
@@ -1509,11 +1631,23 @@
         }
 
         // Tab Management
-        function showTab(tabName) {
+        function showTab(tabName, clickedElement) {
             document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
             document.querySelectorAll('.content-section').forEach(section => section.classList.remove('active'));
 
-            event.target.classList.add('active');
+            // If called from onclick, use the clicked element; otherwise find the tab button
+            if (clickedElement) {
+                clickedElement.classList.add('active');
+            } else {
+                // Find the tab button by matching the onclick attribute
+                const tabButtons = document.querySelectorAll('.tab');
+                tabButtons.forEach(btn => {
+                    if (btn.getAttribute('onclick')?.includes(`'${tabName}'`)) {
+                        btn.classList.add('active');
+                    }
+                });
+            }
+            
             document.getElementById(tabName).classList.add('active');
         }
 
@@ -1540,6 +1674,7 @@
             fetchPendingScripts();
             fetchViolations();
             fetchInventory();
+            loadUsers();
             updateMfaStatus();
             updateAccountInfo();
         }
@@ -1590,6 +1725,11 @@
                 document.getElementById('mfaSetupError').style.display = 'none';
                 document.getElementById('mfaSetupSuccess').style.display = 'none';
 
+                // Show modal first (so elements are in DOM)
+                document.getElementById('mfaSetupStep1').style.display = 'block';
+                document.getElementById('mfaSetupStep2').style.display = 'none';
+                document.getElementById('mfaSetupModal').classList.add('active');
+
                 // Call API to generate MFA secret and QR code
                 const data = await apiCall('/api/admin/auth/setup-mfa', {
                     method: 'POST',
@@ -1598,15 +1738,10 @@
 
                 mfaSetupData = data;
 
-                // Show QR code and secret
+                // Now set QR code and secret (elements are visible)
                 document.getElementById('mfaQrCode').src = data.qrCode;
                 document.getElementById('mfaSecretKey').textContent = data.secret;
                 document.getElementById('mfaVerificationCode').value = '';
-
-                // Show modal with step 1
-                document.getElementById('mfaSetupStep1').style.display = 'block';
-                document.getElementById('mfaSetupStep2').style.display = 'none';
-                document.getElementById('mfaSetupModal').classList.add('active');
 
                 document.getElementById('mfaVerificationCode').focus();
 
@@ -1614,6 +1749,8 @@
                 console.error('MFA setup error:', error);
                 document.getElementById('mfaSetupError').textContent = 'Failed to start MFA setup: ' + error.message;
                 document.getElementById('mfaSetupError').style.display = 'block';
+                // Close modal on error
+                closeMfaSetupModal();
             }
         }
 
@@ -1633,9 +1770,8 @@
                 const data = await apiCall('/api/admin/auth/setup-mfa', {
                     method: 'POST',
                     body: JSON.stringify({
-                        action: 'enable',
-                        secret: mfaSetupData.secret,
-                        token: verificationCode
+                        action: 'verify',
+                        verificationCode: verificationCode
                     })
                 });
 
@@ -1682,6 +1818,11 @@
         }
 
         async function disableMfa() {
+            const verificationCode = prompt('To disable MFA, please enter a verification code from your authenticator app:');
+            if (!verificationCode) {
+                return;
+            }
+
             if (!confirm('Are you sure you want to disable Two-Factor Authentication? This will make your account less secure.')) {
                 return;
             }
@@ -1689,7 +1830,7 @@
             try {
                 await apiCall('/api/admin/auth/setup-mfa', {
                     method: 'POST',
-                    body: JSON.stringify({ action: 'disable' })
+                    body: JSON.stringify({ action: 'disable', verificationCode: verificationCode })
                 });
 
                 // Update current user MFA status
@@ -1760,6 +1901,359 @@
                 });
             });
         }
+
+        document.getElementById('loginButton').addEventListener('click', login);
+
+        // ============================================================================
+        // USER MANAGEMENT FUNCTIONS
+        // ============================================================================
+
+        let currentEditingUserId = null;
+
+        /**
+         * Load and display all users
+         */
+        async function loadUsers() {
+            try {
+                const response = await fetch('/api/admin/users', {
+                    headers: {
+                        'X-API-Token': authToken
+                    }
+                });
+
+                if (!response.ok) {
+                    if (response.status === 401) {
+                        handleTokenExpiration();
+                        return;
+                    }
+                    throw new Error('Failed to load users');
+                }
+
+                const data = await response.json();
+                const users = data.data || [];
+
+                displayUsers(users);
+            } catch (error) {
+                console.error('[Users] Error loading users:', error);
+                document.getElementById('usersContent').innerHTML = `
+                    <div class="error-message" style="display: block;">
+                        Failed to load users: ${error.message}
+                    </div>
+                `;
+            }
+        }
+
+        /**
+         * Display users in a table
+         */
+        function displayUsers(users) {
+            const container = document.getElementById('usersContent');
+
+            if (users.length === 0) {
+                container.innerHTML = '<p style="color: #7f8c8d;">No users found.</p>';
+                return;
+            }
+
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Username</th>
+                            <th>Email</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Created</th>
+                            <th>Last Login</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            users.forEach(user => {
+                const isActive = user.is_active === 1 || user.is_active === true;
+                const statusBadge = isActive
+                    ? '<span class="status-badge approved">Active</span>'
+                    : '<span class="status-badge rejected">Inactive</span>';
+
+                const roleBadge = {
+                    'super_admin': '<span class="status-badge" style="background: #9b59b6;">Super Admin</span>',
+                    'admin': '<span class="status-badge" style="background: #3498db;">Admin</span>',
+                    'reviewer': '<span class="status-badge" style="background: #2ecc71;">Reviewer</span>',
+                    'viewer': '<span class="status-badge" style="background: #95a5a6;">Viewer</span>'
+                }[user.role] || user.role;
+
+                const createdDate = new Date(user.created_at).toLocaleDateString();
+                const lastLogin = user.last_login_at ? new Date(user.last_login_at).toLocaleString() : 'Never';
+
+                const isCurrentUser = currentUser && (currentUser.id === user.id || currentUser.username === user.username);
+                const canModify = !isCurrentUser; // Can't modify own account
+
+                html += `
+                    <tr>
+                        <td>${user.id}</td>
+                        <td><strong>${escapeHtml(user.username)}</strong></td>
+                        <td>${escapeHtml(user.email)}</td>
+                        <td>${roleBadge}</td>
+                        <td>${statusBadge}</td>
+                        <td>${createdDate}</td>
+                        <td style="font-size: 12px;">${lastLogin}</td>
+                        <td>
+                            ${canModify ? `
+                                <button class="small secondary" onclick="editUser(${user.id})" title="Edit User">
+                                    ✏️ Edit
+                                </button>
+                                ${isActive ? `
+                                    <button class="small danger" onclick="toggleUserStatus(${user.id}, false)" title="Disable User">
+                                        🚫 Disable
+                                    </button>
+                                ` : `
+                                    <button class="small success" onclick="toggleUserStatus(${user.id}, true)" title="Enable User">
+                                        ✅ Enable
+                                    </button>
+                                `}
+                                <button class="small danger" onclick="confirmDeleteUser(${user.id}, '${escapeHtml(user.username)}')" title="Delete User">
+                                    🗑️ Delete
+                                </button>
+                            ` : '<span style="color: #95a5a6; font-size: 12px;">(Current User)</span>'}
+                        </td>
+                    </tr>
+                `;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        /**
+         * Open user modal for adding a new user
+         */
+        function openUserModal() {
+            currentEditingUserId = null;
+            document.getElementById('userModalTitle').textContent = 'Add New User';
+            document.getElementById('userUsername').value = '';
+            document.getElementById('userEmail').value = '';
+            document.getElementById('userPassword').value = '';
+            document.getElementById('userPassword').required = true;
+            document.getElementById('userPassword').parentElement.querySelector('label').textContent = 'Password *';
+            document.getElementById('userRole').value = 'reviewer';
+            document.getElementById('userIsActive').value = '1';
+            document.getElementById('userError').style.display = 'none';
+            document.getElementById('userModal').style.display = 'flex';
+        }
+
+        /**
+         * Edit an existing user
+         */
+        async function editUser(userId) {
+            try {
+                const response = await fetch('/api/admin/users', {
+                    headers: {
+                        'X-API-Token': authToken
+                    }
+                });
+
+                if (!response.ok) throw new Error('Failed to load user data');
+
+                const data = await response.json();
+                const user = (data.data || []).find(u => u.id === userId);
+
+                if (!user) {
+                    alert('User not found');
+                    return;
+                }
+
+                currentEditingUserId = userId;
+                document.getElementById('userModalTitle').textContent = 'Edit User';
+                document.getElementById('userUsername').value = user.username;
+                document.getElementById('userEmail').value = user.email;
+                document.getElementById('userPassword').value = '';
+                document.getElementById('userPassword').required = false;
+                document.getElementById('userPassword').parentElement.querySelector('label').textContent = 'Password (leave blank to keep unchanged)';
+                document.getElementById('userRole').value = user.role;
+                document.getElementById('userIsActive').value = user.is_active ? '1' : '0';
+                document.getElementById('userError').style.display = 'none';
+                document.getElementById('userModal').style.display = 'flex';
+            } catch (error) {
+                console.error('[Users] Error loading user for edit:', error);
+                alert('Failed to load user data: ' + error.message);
+            }
+        }
+
+        /**
+         * Save user (create or update)
+         */
+        async function saveUser() {
+            const username = document.getElementById('userUsername').value.trim();
+            const email = document.getElementById('userEmail').value.trim();
+            const password = document.getElementById('userPassword').value;
+            const role = document.getElementById('userRole').value;
+            const is_active = parseInt(document.getElementById('userIsActive').value);
+
+            // Validation
+            if (!username || !email) {
+                showUserError('Username and email are required');
+                return;
+            }
+
+            if (!currentEditingUserId && !password) {
+                showUserError('Password is required for new users');
+                return;
+            }
+
+            const userData = {
+                username,
+                email,
+                role,
+                is_active
+            };
+
+            if (password) {
+                userData.password = password;
+            }
+
+            try {
+                const url = currentEditingUserId
+                    ? `/api/admin/users/${currentEditingUserId}`
+                    : '/api/admin/users';
+
+                const method = currentEditingUserId ? 'PUT' : 'POST';
+
+                const response = await fetch(url, {
+                    method,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Token': authToken
+                    },
+                    body: JSON.stringify(userData)
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to save user');
+                }
+
+                closeUserModal();
+                loadUsers();
+
+                const action = currentEditingUserId ? 'updated' : 'created';
+                alert(`User ${action} successfully`);
+            } catch (error) {
+                console.error('[Users] Error saving user:', error);
+                showUserError(error.message);
+            }
+        }
+
+        /**
+         * Toggle user status (enable/disable)
+         */
+        async function toggleUserStatus(userId, enable) {
+            const action = enable ? 'enable' : 'disable';
+
+            if (!confirm(`Are you sure you want to ${action} this user?`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/admin/users/${userId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-API-Token': authToken
+                    },
+                    body: JSON.stringify({
+                        is_active: enable ? 1 : 0
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || `Failed to ${action} user`);
+                }
+
+                loadUsers();
+                alert(`User ${enable ? 'enabled' : 'disabled'} successfully`);
+            } catch (error) {
+                console.error(`[Users] Error ${action}ing user:`, error);
+                alert(`Failed to ${action} user: ${error.message}`);
+            }
+        }
+
+        /**
+         * Confirm and delete a user
+         */
+        function confirmDeleteUser(userId, username) {
+            if (!confirm(`Are you sure you want to DELETE user "${username}"?\n\nThis action cannot be undone!`)) {
+                return;
+            }
+
+            deleteUserById(userId);
+        }
+
+        /**
+         * Delete a user by ID
+         */
+        async function deleteUserById(userId) {
+            try {
+                const response = await fetch(`/api/admin/users/${userId}`, {
+                    method: 'DELETE',
+                    headers: {
+                        'X-API-Token': authToken
+                    }
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error || 'Failed to delete user');
+                }
+
+                loadUsers();
+                alert('User deleted successfully');
+            } catch (error) {
+                console.error('[Users] Error deleting user:', error);
+                alert('Failed to delete user: ' + error.message);
+            }
+        }
+
+        /**
+         * Close user modal
+         */
+        function closeUserModal() {
+            document.getElementById('userModal').style.display = 'none';
+            currentEditingUserId = null;
+        }
+
+        /**
+         * Show error in user modal
+         */
+        function showUserError(message) {
+            const errorDiv = document.getElementById('userError');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        /**
+         * HTML escape helper
+         */
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Add click outside to close modals
+        window.onclick = function(event) {
+            if (event.target.classList.contains('modal')) {
+                const modals = ['approvalModal', 'rejectionModal', 'detailsModal', 'userModal', 'mfaSetupModal'];
+                modals.forEach(modalId => {
+                    if (event.target.id === modalId) {
+                        document.getElementById(modalId).style.display = 'none';
+                    }
+                });
+            }
+        };
+
     </script>
 </body>
 </html>

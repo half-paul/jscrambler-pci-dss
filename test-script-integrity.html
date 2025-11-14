@@ -584,7 +584,7 @@
       }
 
       const summary = window.ScriptIntegrityMonitor.getSummary();
-      const violations = window.ScriptIntegrityMonitor.getViolations();
+      const violations = window.ScriptIntegrityMonitor.getViolations(true);
       const inventory = window.ScriptIntegrityMonitor.getInventory();
 
       let html = `

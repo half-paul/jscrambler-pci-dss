@@ -107,6 +107,9 @@
       this.pollTimers = new Map();            // Polling timers for pending scripts
       this.sessionId = this.generateSessionId();
 
+      // Blocked scripts tracking (for enforcement mode)
+      this.blockedScripts = new Set();        // Set of blocked script hashes and URLs
+
       // Initialize monitoring
       this.initialize();
     }
@@ -114,7 +117,7 @@
     /**
      * Initialize the integrity monitoring system
      */
-    initialize() {
+    async initialize() {
       this.log('Initializing Script Integrity Monitor', 'info');
       this.log(`Mode: ${this.config.mode}`, 'info');
       this.log(`Hash Algorithm: ${this.config.hashAlgorithm}`, 'info');
@@ -140,7 +143,7 @@
       }
 
       // Scan existing scripts on the page
-      this.scanExistingScripts();
+      await this.scanExistingScripts();
 
       // Set up MutationObserver for dynamically added scripts
       if (this.config.monitorDynamicScripts) {
@@ -161,19 +164,24 @@
     /**
      * Scan all existing scripts on the page
      */
-    scanExistingScripts() {
+    async scanExistingScripts() {
       const scripts = document.querySelectorAll('script');
       this.log(`Found ${scripts.length} existing script(s)`, 'debug');
 
-      scripts.forEach((script, index) => {
+      // Process scripts sequentially to ensure proper initialization
+      let index = 0;
+      for (const script of scripts) {
         // Skip this monitoring script itself
         if (script === document.currentScript) {
           this.log('Skipping monitoring script itself', 'debug');
-          return;
+          continue;
         }
 
-        this.processScript(script, 'initial-load', index);
-      });
+        await this.processScript(script, 'initial-load', index);
+        index++;
+      }
+
+      this.log(`Processed ${index} script(s)`, 'debug');
     }
 
     /**
@@ -185,6 +193,26 @@
           mutation.addedNodes.forEach((node) => {
             // Check if the added node is a script
             if (node.nodeName === 'SCRIPT') {
+              // In enforce mode, block script immediately if it's in the block list
+              if (this.config.mode === 'enforce' && this.blockedScripts) {
+                const src = node.src || null;
+
+                // Check if this script is in the block list
+                if (src && this.blockedScripts.has(src)) {
+                  this.log(`🚫 Blocking previously rejected script: ${src}`, 'warn');
+                  node.type = 'blocked-by-integrity-monitor';
+                  node.setAttribute('data-integrity-status', 'blocked');
+                  node.setAttribute('data-blocked-reason', 'Previously rejected by administrator');
+
+                  if (node.parentNode) {
+                    node.parentNode.removeChild(node);
+                  }
+
+                  console.error('[SIM] ❌ Blocked script from loading (previously rejected):', src);
+                  return; // Don't process further
+                }
+              }
+
               this.processScript(node, 'dynamic-addition');
             }
 
@@ -192,6 +220,25 @@
             if (node.querySelectorAll) {
               const scripts = node.querySelectorAll('script');
               scripts.forEach((script) => {
+                // In enforce mode, check block list first
+                if (this.config.mode === 'enforce' && this.blockedScripts) {
+                  const src = script.src || null;
+
+                  if (src && this.blockedScripts.has(src)) {
+                    this.log(`🚫 Blocking previously rejected nested script: ${src}`, 'warn');
+                    script.type = 'blocked-by-integrity-monitor';
+                    script.setAttribute('data-integrity-status', 'blocked');
+                    script.setAttribute('data-blocked-reason', 'Previously rejected by administrator');
+
+                    if (script.parentNode) {
+                      script.parentNode.removeChild(script);
+                    }
+
+                    console.error('[SIM] ❌ Blocked nested script from loading (previously rejected):', src);
+                    return;
+                  }
+                }
+
                 this.processScript(script, 'dynamic-nested');
               });
             }
@@ -321,7 +368,7 @@
         }
 
         // Verify integrity
-        const verification = this.verifyIntegrity(scriptInfo);
+        const verification = await this.verifyIntegrity(scriptInfo);
         scriptInfo.authorized = verification.authorized;
         scriptInfo.violation = verification.violation;
 
@@ -438,7 +485,7 @@
         // Check server-side status first (if configured)
         if (this.config.serverBaseUrl) {
           this.log(`Checking server status for: ${scriptInfo.id}`, 'debug');
-          const serverStatus = await this.checkScriptStatus(scriptInfo.hash);
+          const serverStatus = await this.checkScriptStatus(encodeURIComponent(scriptInfo.hash));
 
           if (serverStatus) {
             result.serverStatus = serverStatus.status;
@@ -446,6 +493,11 @@
             if (serverStatus.status === 'approved') {
               result.authorized = true;
               this.log(`Script approved on server: ${scriptInfo.id}`, 'info');
+              // Remove any existing violations for this approved script
+              this.violations = this.violations.filter(v => 
+                v.hash !== scriptInfo.hash && 
+                v.scriptId !== scriptInfo.id
+              );
             } else if (serverStatus.status === 'rejected') {
               result.violation = 'REJECTED_BY_ADMIN';
               this.log(`Script rejected by admin: ${scriptInfo.id}`, 'warn');
@@ -543,7 +595,12 @@
       };
 
       // In enforce mode, attempt to block the script
-      if (this.config.mode === 'enforce') {
+      // But only block actual security violations, not pending approval or new scripts
+      const shouldBlock = this.config.mode === 'enforce' &&
+                         scriptInfo.violation !== 'PENDING_APPROVAL' &&
+                         scriptInfo.violation !== 'NEW_SCRIPT';
+
+      if (shouldBlock) {
         this.blockScript(scriptInfo);
         alert.action = 'BLOCKED';
       } else {
@@ -599,20 +656,91 @@
      * @param {Object} scriptInfo - Script information object
      */
     blockScript(scriptInfo) {
-      this.log(`Attempting to block script: ${scriptInfo.id}`, 'warn');
+      this.log(`🚫 Blocking script: ${scriptInfo.id} (${scriptInfo.violation})`, 'warn');
 
       // This is a best-effort approach
       // For inline scripts that have already executed, we cannot undo execution
-      // For external scripts, we can potentially prevent future loads
+      // For external scripts, we can prevent execution if caught early enough
 
-      if (!scriptInfo.inline && scriptInfo.src) {
-        // Add to Content Security Policy (if supported)
-        // Note: This won't block already-loaded scripts
-        this.log('Script blocking has limitations - consider implementing CSP headers', 'warn');
+      try {
+        // Find the script element in the DOM
+        let scriptElement = null;
+
+        if (scriptInfo.inline) {
+          // Find inline script by content hash or position
+          const scripts = document.querySelectorAll('script:not([src])');
+          for (let i = 0; i < scripts.length; i++) {
+            const content = scripts[i].textContent || scripts[i].innerHTML;
+            if (content === scriptInfo.content ||
+                (scriptInfo.context && scriptInfo.context.position === i)) {
+              scriptElement = scripts[i];
+              break;
+            }
+          }
+        } else if (scriptInfo.src) {
+          // Find external script by src
+          scriptElement = document.querySelector(`script[src="${scriptInfo.src}"]`);
+        }
+
+        if (scriptElement) {
+          // Method 1: Change type to prevent execution (for scripts not yet executed)
+          if (scriptElement.type === 'text/javascript' || scriptElement.type === '' || !scriptElement.type) {
+            scriptElement.type = 'blocked-by-integrity-monitor';
+            this.log(`Changed script type to prevent execution: ${scriptInfo.id}`, 'info');
+          }
+
+          // Method 2: Remove script from DOM
+          if (scriptElement.parentNode) {
+            // Mark as blocked before removing
+            scriptElement.setAttribute('data-integrity-status', 'blocked');
+            scriptElement.setAttribute('data-violation-type', scriptInfo.violation);
+            scriptElement.setAttribute('data-blocked-timestamp', new Date().toISOString());
+
+            // For rejected scripts, add a visible comment/marker
+            if (scriptInfo.violation === 'REJECTED_BY_ADMIN') {
+              const marker = document.createComment(
+                `SCRIPT BLOCKED BY ADMINISTRATOR - ${scriptInfo.id} - Reason: Script rejected during security review`
+              );
+              scriptElement.parentNode.insertBefore(marker, scriptElement);
+              this.log(`🔒 Admin-rejected script blocked: ${scriptInfo.id}`, 'warn');
+            }
+
+            // Remove from DOM
+            scriptElement.parentNode.removeChild(scriptElement);
+            this.log(`Removed script element from DOM: ${scriptInfo.id}`, 'info');
+          }
+        } else {
+          this.log(`Script element not found in DOM (may have already executed): ${scriptInfo.id}`, 'warn');
+        }
+
+        // Method 3: Add to block list to prevent future dynamic loads
+        if (!this.blockedScripts) {
+          this.blockedScripts = new Set();
+        }
+        this.blockedScripts.add(scriptInfo.hash);
+        this.blockedScripts.add(scriptInfo.src);
+
+        // Log the blocking
+        console.error('[SIM] ❌ SCRIPT BLOCKED (enforcement mode):', {
+          scriptId: scriptInfo.id,
+          violation: scriptInfo.violation,
+          src: scriptInfo.src || '(inline)',
+          timestamp: new Date().toISOString()
+        });
+
+        // For REJECTED_BY_ADMIN, also log to console with distinct styling
+        if (scriptInfo.violation === 'REJECTED_BY_ADMIN') {
+          console.error(
+            '%c[SIM] 🛑 ADMINISTRATOR BLOCKED SCRIPT',
+            'background: #d32f2f; color: white; font-weight: bold; padding: 4px 8px; border-radius: 3px;',
+            `\nScript: ${scriptInfo.id}\nReason: Rejected by administrator during security review\nAction: Script execution prevented and removed from page`
+          );
+        }
+
+      } catch (error) {
+        this.log(`Error blocking script ${scriptInfo.id}: ${error.message}`, 'error');
+        console.error('[SIM] Error blocking script:', error);
       }
-
-      // Log the blocking attempt
-      console.warn('[SIM] SCRIPT BLOCKED (enforcement mode):', scriptInfo.id);
     }
 
     /**
@@ -688,10 +816,16 @@
      * @returns {Object} Inventory summary
      */
     getInventorySummary() {
+      const unauthorizedScripts = this.scriptInventory.filter(s => 
+        !s.authorized && 
+        s.violation !== 'NEW_SCRIPT' && 
+        s.violation !== 'PENDING_APPROVAL'
+      ).length;
+
       return {
         totalScripts: this.scriptInventory.length,
         authorizedScripts: this.scriptInventory.filter(s => s.authorized).length,
-        unauthorizedScripts: this.scriptInventory.filter(s => !s.authorized).length,
+        unauthorizedScripts: unauthorizedScripts,
         inlineScripts: this.scriptInventory.filter(s => s.inline).length,
         externalScripts: this.scriptInventory.filter(s => !s.inline).length,
         sessionStartTime: this.sessionStartTime
@@ -708,10 +842,18 @@
 
     /**
      * Get all violations
-     * @returns {Array} All violations
+     * @param {boolean} includePending - Include PENDING_APPROVAL and NEW_SCRIPT (default: false)
+     * @returns {Array} All violations (excluding pending approvals by default)
      */
-    getViolations() {
-      return this.violations;
+    getViolations(includePending = false) {
+      if (includePending) {
+        return this.violations;
+      }
+      // Filter out PENDING_APPROVAL and NEW_SCRIPT - these are not security violations
+      return this.violations.filter(v => 
+        v.violationType !== 'PENDING_APPROVAL' && 
+        v.violationType !== 'NEW_SCRIPT'
+      );
     }
 
     /**
@@ -738,11 +880,11 @@
           timestamp: new Date(script.timestamp).toISOString(),
           violation: script.violation
         })),
-        violations: this.violations.map(v => ({
+        violations: this.getViolations(true).map(v => ({
           ...v,
           timestamp: new Date(v.timestamp).toISOString()
         })),
-        complianceStatus: this.violations.length === 0 ? 'COMPLIANT' : 'VIOLATIONS_DETECTED'
+        complianceStatus: this.getViolations(false).length === 0 ? 'COMPLIANT' : 'VIOLATIONS_DETECTED'
       };
     }
 
@@ -1040,6 +1182,15 @@
           clearInterval(pollTimer);
           this.pollTimers.delete(scriptInfo.hash);
 
+          // If approved, remove from violations array
+          if (status.status === 'approved') {
+            this.violations = this.violations.filter(v => 
+              v.hash !== scriptInfo.hash && 
+              v.scriptId !== scriptInfo.id
+            );
+            this.log(`Removed approved script from violations: ${scriptInfo.id}`, 'info');
+          }
+
           // Update script inventory
           const inventoryItem = this.scriptInventory.find(s => s.hash === scriptInfo.hash);
           if (inventoryItem) {
@@ -1123,7 +1274,7 @@
     // Expose public API
     window.ScriptIntegrityMonitor = {
       getInventory: () => monitor.getInventory(),
-      getViolations: () => monitor.getViolations(),
+      getViolations: (includePending) => monitor.getViolations(includePending),
       getSummary: () => monitor.getInventorySummary(),
       generateReport: () => monitor.generateComplianceReport(),
       exportInventory: () => monitor.exportInventory(),

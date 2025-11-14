@@ -15,21 +15,35 @@ const JWT_REFRESH_EXPIRES_IN = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 /**
  * Generate JWT tokens for authenticated session
  */
-function generateTokens(admin) {
-  const payload = {
-    id: admin.id,
-    username: admin.username,
-    email: admin.email,
-    role: admin.role
-  };
+function generateTokens(payloadData) {
+  const isTemp = payloadData.temp === true;
+
+  let payload;
+  let expiresIn = JWT_EXPIRES_IN;
+
+  if (isTemp) {
+    payload = { id: payloadData.id, temp: true };
+    expiresIn = '5m'; // 5 minutes for temporary token
+  } else {
+    payload = {
+      id: payloadData.id,
+      username: payloadData.username,
+      email: payloadData.email,
+      role: payloadData.role
+    };
+  }
 
   const accessToken = jwt.sign(payload, JWT_SECRET, {
-    expiresIn: JWT_EXPIRES_IN,
+    expiresIn: expiresIn,
     issuer: 'script-integrity-monitor'
   });
 
+  if (isTemp) {
+    return { accessToken };
+  }
+
   const refreshToken = jwt.sign(
-    { id: admin.id, type: 'refresh' },
+    { id: payloadData.id, type: 'refresh' },
     JWT_SECRET,
     { expiresIn: JWT_REFRESH_EXPIRES_IN, issuer: 'script-integrity-monitor' }
   );

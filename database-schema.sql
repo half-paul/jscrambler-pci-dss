@@ -430,7 +430,7 @@ END;
 -- Sample admin user (password: 'admin123' - CHANGE IN PRODUCTION!)
 -- Password hash generated with bcrypt
 INSERT OR IGNORE INTO admin_users (username, email, password_hash, role, api_token) VALUES
-    ('admin', 'admin@example.com', '$2b$10$rBV2uMXVz7WqNqyNjHjCJeX.8pKz2QKZvH.kP9C4xD5L6JLhYv6OW', 'admin', 'demo-token-12345');
+    ('admin', 'admin@example.com', '$2b$10$YV65lKzIz/IUvZmpKB9IWeBG3j/Tz3Wg022hoSyN7cKXEMreEQBlW', 'admin', 'demo-token-12345');
 
 -- ============================================================================
 -- POSTGRESQL SPECIFIC MODIFICATIONS
