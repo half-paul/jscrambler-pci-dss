@@ -691,6 +691,12 @@ app.post('/api/scripts/register', registrationLimiter, async (req, res) => {
       });
     }
 
+    // Get client IP address (with privacy hashing if configured)
+    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() ||
+                     req.headers['x-real-ip'] ||
+                     req.socket.remoteAddress ||
+                     req.connection.remoteAddress;
+
     // Register script in database
     const result = await db.registerScript({
       url,
@@ -700,7 +706,8 @@ app.post('/api/scripts/register', registrationLimiter, async (req, res) => {
       contentPreview,
       pageUrl,
       discoveryContext,
-      scriptPosition  // NEW: Pass position to database
+      scriptPosition,  // NEW: Pass position to database
+      clientIp         // NEW: Pass client IP for tracking
     });
 
     // Send notification if new script (but not for variations - only truly new scripts)

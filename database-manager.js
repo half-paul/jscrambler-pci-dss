@@ -319,7 +319,8 @@ class DatabaseManager {
       contentPreview,
       pageUrl,
       discoveryContext,
-      scriptPosition  // NEW: Position of inline script
+      scriptPosition,  // NEW: Position of inline script
+      clientIp         // NEW: Client IP address
     } = scriptData;
 
     // Check if exact script (url + hash) already exists
@@ -329,15 +330,23 @@ class DatabaseManager {
     );
 
     if (existing) {
-      // Script exists - increment access count and update timestamps
+      // Script exists - update timestamps and IP (if not approved)
+      const updateFields = ['last_seen = CURRENT_TIMESTAMP', 'last_accessed = CURRENT_TIMESTAMP', 'access_count = access_count + 1'];
+      const updateParams = [];
+
+      // Only update IP if script is NOT approved
+      if (existing.status !== 'approved' && existing.status !== 'auto_approved' && clientIp) {
+        updateFields.push('last_registered_ip = ?', 'last_registered_at = CURRENT_TIMESTAMP');
+        updateParams.push(clientIp);
+      }
+
+      updateParams.push(existing.id);
+
       await this.query(
-        `UPDATE scripts SET
-          last_seen = CURRENT_TIMESTAMP,
-          last_accessed = CURRENT_TIMESTAMP,
-          access_count = access_count + 1
-        WHERE id = ?`,
-        [existing.id]
+        `UPDATE scripts SET ${updateFields.join(', ')} WHERE id = ?`,
+        updateParams
       );
+
       return {
         scriptId: existing.id,
         status: existing.status,
@@ -388,10 +397,10 @@ class DatabaseManager {
             url, content_hash, script_type, size_bytes, content_preview,
             page_url, discovery_context, status,
             script_position, parent_script_id, is_variation, variation_number,
-            access_count, last_accessed
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?, 1, ?, 1, CURRENT_TIMESTAMP)`,
+            access_count, last_accessed, last_registered_ip, last_registered_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?, 1, ?, 1, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)`,
           [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
-           scriptPosition, parentScriptId, nextVariationNumber]
+           scriptPosition, parentScriptId, nextVariationNumber, clientIp]
         );
 
         // Query back the inserted record
@@ -417,10 +426,10 @@ class DatabaseManager {
       `INSERT INTO scripts (
         url, content_hash, script_type, size_bytes, content_preview,
         page_url, discovery_context, status,
-        script_position, access_count, last_accessed
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, CURRENT_TIMESTAMP)`,
+        script_position, access_count, last_accessed, last_registered_ip, last_registered_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)`,
       [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
-       scriptType === 'inline' ? scriptPosition : null]
+       scriptType === 'inline' ? scriptPosition : null, clientIp]
     );
 
     // Query back the inserted record to get its ID (workaround for sql.js last_insert_rowid issue)
@@ -530,7 +539,9 @@ class DatabaseManager {
         script_purpose = ?,
         script_owner = ?,
         risk_level = ?,
-        approval_notes = ?
+        approval_notes = ?,
+        last_registered_ip = NULL,
+        last_registered_at = NULL
       WHERE id = ?`,
       [approvedBy, businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes, scriptId]
     );
