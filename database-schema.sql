@@ -53,6 +53,10 @@ CREATE TABLE IF NOT EXISTS scripts (
     access_count INTEGER DEFAULT 0,         -- How many times this script was loaded/accessed
     last_accessed DATETIME,                 -- Last time this script was accessed
 
+    -- Registration Tracking (NEW)
+    last_registered_ip TEXT,                -- IP address of client that last registered this script (cleared on approval)
+    last_registered_at DATETIME,            -- When script was last registered (for non-approved scripts)
+
     -- Inline Script Variation Tracking (NEW)
     script_position INTEGER,                -- Position/index of inline script in page (NULL for external)
     parent_script_id INTEGER,               -- References parent script if this is a variation

@@ -1158,24 +1158,34 @@
                             <th>Type</th>
                             <th>Status</th>
                             <th>Access Count</th>
+                            <th>Last Registered IP</th>
                             <th>Variation</th>
                             <th>First Seen</th>
                             <th>Approved By</th>
                         </tr>
                     </thead>
                     <tbody>
-                        ${scripts.map(script => `
+                        ${scripts.map(script => {
+                            // Only show IP for non-approved scripts
+                            const showIp = script.status !== 'approved' && script.status !== 'auto_approved' && script.last_registered_ip;
+                            const ipDisplay = showIp ?
+                                `<span style="font-family: monospace; font-size: 11px;" title="Last registered: ${script.last_registered_at ? new Date(script.last_registered_at).toLocaleString() : 'N/A'}">${script.last_registered_ip}</span>` :
+                                '<span style="color: #95a5a6;">-</span>';
+
+                            return `
                             <tr onclick="showScriptDetails(${script.id})" style="cursor: pointer;" title="Click to view details">
                                 <td>${script.id}</td>
                                 <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(script.url)}">${escapeHtml(script.url)}</td>
                                 <td><span class="badge">${script.script_type}</span></td>
                                 <td><span class="badge ${statusColors[script.status] || ''}">${statusLabels[script.status] || script.status}</span></td>
                                 <td><strong>${script.access_count || 0}</strong></td>
+                                <td>${ipDisplay}</td>
                                 <td>${script.is_variation ? `<span class="badge warning" title="Variation #${script.variation_number} of script #${script.parent_script_id}">Var #${script.variation_number}</span>` : '-'}</td>
                                 <td>${new Date(script.first_seen).toLocaleString()}</td>
                                 <td>${script.approved_by || '-'}</td>
                             </tr>
-                        `).join('')}
+                            `;
+                        }).join('')}
                     </tbody>
                 </table>
                 <div style="margin-top: 20px; color: #666; font-size: 14px;">
