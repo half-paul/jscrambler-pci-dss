@@ -97,7 +97,10 @@ CREATE TABLE IF NOT EXISTS integrity_violations (
         'NO_BASELINE_HASH',                 -- New/unknown script
         'SRI_MISMATCH',                     -- SRI attribute doesn't match
         'UNAUTHORIZED_SCRIPT',              -- Script not in approved list
-        'PROCESSING_ERROR'                  -- Error during processing
+        'PROCESSING_ERROR',                 -- Error during processing
+        'PENDING_APPROVAL',                 -- Script is new and awaiting approval
+        'NEW_SCRIPT',                       -- Script is new and has been auto-registered
+        'REJECTED_BY_ADMIN'                 -- Script has been rejected by an admin
     )),
 
     -- Detection Context

@@ -581,7 +581,7 @@
       }
 
       // Report to server (if configured)
-      if (this.config.serverBaseUrl && scriptInfo.violation !== 'PENDING_APPROVAL' && scriptInfo.violation !== 'NEW_SCRIPT') {
+      if (this.config.serverBaseUrl) {
         await this.reportViolationToServer(violation);
       }
 
