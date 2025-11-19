@@ -199,6 +199,7 @@ class DatabaseManager {
           if (!sql || sql.length === 0) continue;
 
           if (this.config.type === 'postgres' && /^INSERT OR IGNORE INTO/i.test(sql)) {
+            console.log('[DB] Converting INSERT OR IGNORE statement...');
             // Convert SQLite-style INSERT OR IGNORE into PostgreSQL ON CONFLICT DO NOTHING
             sql = sql.replace(/^INSERT OR IGNORE INTO/i, 'INSERT INTO');
 
@@ -213,14 +214,19 @@ class DatabaseManager {
             if (!/ON CONFLICT/.test(sql)) {
               sql = `${sql} ON CONFLICT${conflictTarget} DO NOTHING`;
             }
+            console.log(`[DB] Converted to: ${sql.substring(0, 100)}... ON CONFLICT${conflictTarget} DO NOTHING`);
           }
 
           try {
             await this.db.query(sql);
           } catch (err) {
-            // Log but continue if it's a "already exists" error
-            if (err.message.includes('already exists')) {
-              console.log(`[DB] Skipping: ${err.message}`);
+            // Log but continue if it's a "already exists" or "duplicate key" error
+            const isIgnorableError =
+              err.message.includes('already exists') ||
+              err.message.includes('duplicate key value violates unique constraint');
+
+            if (isIgnorableError) {
+              console.log(`[DB] Skipping (already exists): ${err.message.split('\n')[0]}`);
             } else {
               throw err;
             }
