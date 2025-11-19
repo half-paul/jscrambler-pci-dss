@@ -211,7 +211,7 @@ class DatabaseManager {
 
   /**
    * Execute a query with parameters
-   * @param {string} sql - SQL query
+   * @param {string} sql - SQL query with ? placeholders (SQLite style)
    * @param {Array} params - Query parameters
    * @returns {Promise<Array|Object>} Query result - Array for SELECT, Object for INSERT/UPDATE/DELETE
    */
@@ -228,7 +228,9 @@ class DatabaseManager {
       if (this.config.type === 'sqlite') {
         return this.querySQLite(sql, params);
       } else {
-        const result = await this.queryPostgreSQL(sql, params);
+        // Convert ? placeholders to $1, $2, $3 for PostgreSQL
+        const pgSql = this.convertPlaceholders(sql);
+        const result = await this.queryPostgreSQL(pgSql, params);
         // Normalize PostgreSQL result to match SQLite format for SELECT queries
         const isSelect = sql.trim().toUpperCase().startsWith('SELECT');
         if (isSelect) {
@@ -241,6 +243,19 @@ class DatabaseManager {
       console.error('[DB Query]', sql);
       throw error;
     }
+  }
+
+  /**
+   * Convert SQLite-style ? placeholders to PostgreSQL-style $1, $2, $3
+   * @param {string} sql - SQL query with ? placeholders
+   * @returns {string} SQL query with $n placeholders
+   */
+  convertPlaceholders(sql) {
+    let index = 0;
+    return sql.replace(/\?/g, () => {
+      index++;
+      return `$${index}`;
+    });
   }
 
   /**

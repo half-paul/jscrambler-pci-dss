@@ -77,8 +77,12 @@ Status updated → Allow or block execution
 **Database Manager Pattern**: `database-manager.js` abstracts SQLite vs PostgreSQL
 - **Development**: Uses `sql.js` (pure JS, no compilation needed)
 - **Production**: Supports PostgreSQL with connection pooling
-- **Schema**: Applied automatically from `database-schema.sql` on startup
+- **Schema**: Database-specific schema files (`database-schema.sql` for SQLite, `database-schema-postgres.sql` for PostgreSQL)
 - **Key Point**: Uses `sql.js` NOT `better-sqlite3` to avoid native compilation issues
+- **Placeholder Conversion**: Automatically converts `?` placeholders (SQLite) to `$1, $2, $3` (PostgreSQL)
+  - Write all queries with `?` placeholders
+  - DatabaseManager handles conversion for PostgreSQL automatically
+  - Example: `db.query('SELECT * FROM scripts WHERE id = ?', [123])`
 
 ### File Locations
 - **Root**: Client scripts (`script-integrity-monitor.js`, `script-integrity-config.js`)
