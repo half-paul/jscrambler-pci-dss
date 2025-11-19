@@ -252,18 +252,25 @@ CREATE TABLE IF NOT EXISTS system_config (
     updated_by TEXT
 );
 
+SELECT * FROM system_config;  -- Dummy query to ensure table exists
+
 -- Insert default configuration
-INSERT OR IGNORE INTO system_config (key, value, description) VALUES
+INSERT INTO system_config (key, value, description) VALUES
     ('auto_approval_enabled', 'false', 'Enable automatic approval for whitelisted domains'),
     ('auto_approval_domains', '[]', 'JSON array of domains for auto-approval'),
     ('hash_algorithm', 'SHA-384', 'Hash algorithm used for integrity checks'),
-    ('violation_alert_email', '', 'Email address for violation alerts'),
+    ('violation_alert_email', '', 'Email addresses for violation alerts (comma-separated)'),
     ('violation_alert_slack', '', 'Slack webhook URL for alerts'),
     ('approval_required_threshold', 'all', 'Require approval for: all, external_only, high_risk'),
     ('session_timeout_minutes', '30', 'Admin session timeout in minutes'),
     ('rate_limit_per_session', '100', 'Max violation reports per session per hour'),
     ('retention_days_violations', '365', 'How long to keep violation records'),
-    ('retention_days_audit', '2555', 'How long to keep audit logs (7 years for PCI)');
+    ('retention_days_audit', '2555', 'How long to keep audit logs (7 years for PCI)'),
+    ('alert_batch_interval_minutes', '15', 'How often to send batched alerts (in minutes)'),
+    ('alert_violations_enabled', 'false', 'Enable alerts for integrity violations'),
+    ('alert_new_scripts_enabled', 'false', 'Enable alerts for new pending scripts'),
+    ('alert_last_sent_violations', '', 'Timestamp of last violation alert sent (internal)'),
+    ('alert_last_sent_new_scripts', '', 'Timestamp of last new script alert sent (internal)');
 
 -- ============================================================================
 -- NOTIFICATION QUEUE TABLE

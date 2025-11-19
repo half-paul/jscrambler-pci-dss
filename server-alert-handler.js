@@ -26,6 +26,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { getDatabase } = require('./database-manager');
 const mfaAuth = require('./auth-mfa');
+const AlertScheduler = require('./alert-scheduler');
 
 const app = express();
 
@@ -103,6 +104,7 @@ const violationLimiter = rateLimit({
 // ============================================================================
 
 let db = null;
+let alertScheduler = null;
 
 async function initializeDatabase() {
   try {
@@ -119,6 +121,11 @@ async function initializeDatabase() {
 
     await db.initialize();
     console.log('[Server] Database initialized successfully');
+
+    // Initialize alert scheduler
+    alertScheduler = new AlertScheduler(db);
+    console.log('[Server] Alert scheduler initialized');
+
   } catch (error) {
     console.error('[Server] Database initialization failed:', error.message);
     throw error;
@@ -1386,6 +1393,9 @@ async function startServer() {
   try {
     // Initialize database
     await initializeDatabase();
+
+    // Start alert scheduler
+    await alertScheduler.start();
 
     // Start Express server
     app.listen(PORT, () => {
