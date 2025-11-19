@@ -311,6 +311,36 @@ SCRIPT_INTEGRITY_CONFIG.generateBaselineHashes();
 // Copy output and add to baselineHashes configuration
 ```
 
+## Docker Deployment
+
+The application can be easily deployed using Docker. See [DOCKER.md](DOCKER.md) for complete Docker deployment guide.
+
+### Quick Start with Docker
+
+```bash
+# Using Docker Compose (recommended)
+docker-compose up -d
+```
+
+This will start:
+- PostgreSQL container (database)
+- Application container (server)
+
+The containers will automatically:
+- Initialize the PostgreSQL database on first run
+- Create the default admin user
+- Start the server on port 3000
+- Persist database data in Docker volume `postgres-data`
+
+Access the admin panel at: http://localhost:3000/admin-panel.html
+
+**Default PostgreSQL credentials:**
+- Database: `script_integrity`
+- User: `postgres`
+- Password: `postgres`
+
+⚠️ **Change default credentials in production!**
+
 ## Production Deployment
 
 ### Pre-Deployment Checklist
