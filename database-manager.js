@@ -171,36 +171,35 @@ class DatabaseManager {
         // SQLite: Execute entire schema at once
         this.db.exec(schema);
         this.saveSQLite();
+      } else {
+        // PostgreSQL: Execute statements one by one
+        // Split by semicolon and filter empty statements
+        const statements = schema.split(';').filter(s => s.trim().length > 0);
 
-       } else {
-         // PostgreSQL: Execute statements one by one
-           await this.db.query(schema);
-       }
+        for (const stmt of statements) {
+          const sql = stmt.trim();
+          if (!sql || sql.length === 0) continue;
 
-      //   // Split by semicolon and filter empty statements
-      //   const statements = schema.split(';').filter(s => s.trim().length > 0);
+          // Skip comments-only statements
+          if (sql.startsWith('--') || sql.startsWith('/*')) continue;
 
-      //   for (const stmt of statements) {
-      //     const sql = stmt.trim();
-      //     if (!sql || sql.length === 0) continue;
+          try {
+            await this.db.query(sql);
+          } catch (err) {
+            // Gracefully handle "already exists" and "duplicate key" errors
+            const isIgnorableError =
+              err.message.includes('already exists') ||
+              err.message.includes('duplicate key value violates unique constraint');
 
-      //     try {
-      //       await this.db.query(sql);
-      //     } catch (err) {
-      //       // Gracefully handle "already exists" and "duplicate key" errors
-      //       const isIgnorableError =
-      //         err.message.includes('already exists') ||
-      //         err.message.includes('duplicate key value violates unique constraint');
-
-      //       if (isIgnorableError) {
-      //         console.log(`[DB] Skipping (already exists): ${err.message.split('\n')[0]}`);
-      //       } else {
-      //         console.error('[DB] Error executing statement:', sql.substring(0, 100));
-      //         throw err;
-      //       }
-      //     }
-      //   }
-      //}
+            if (isIgnorableError) {
+              console.log(`[DB] Skipping (already exists): ${err.message.split('\n')[0]}`);
+            } else {
+              console.error('[DB] Error executing statement:', sql.substring(0, 100));
+              throw err;
+            }
+          }
+        }
+      }
 
       console.log('[DB] Migrations completed successfully');
     } catch (error) {
@@ -222,6 +221,12 @@ class DatabaseManager {
 
     if (this.config.logQueries) {
       console.log('[DB Query]', sql, params);
+    }
+
+    if (this.config.type === 'sqlite') {
+        console.log('[DB] using SQLite query method');
+    } else if (this.config.type === 'postgres') {
+        console.log('[DB] using PostgreSQL query method');
     }
 
     try {
