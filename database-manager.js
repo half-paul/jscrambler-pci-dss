@@ -26,8 +26,10 @@ const path = require('path');
  */
 class DatabaseManager {
   constructor(config = {}) {
+    const dbType = config.type || process.env.DB_TYPE || 'sqlite';
+
     this.config = {
-      type: config.type || process.env.DB_TYPE || 'sqlite', // 'sqlite' or 'postgres'
+      type: dbType, // 'sqlite' or 'postgres'
 
       // SQLite configuration
       sqlitePath: config.sqlitePath || process.env.SQLITE_PATH || './data/integrity-monitor.db',
@@ -47,8 +49,12 @@ class DatabaseManager {
       // Logging
       logQueries: config.logQueries !== false,
 
-      // Schema
-      schemaFile: config.schemaFile || path.join(__dirname, 'database-schema.sql')
+      // Schema - use database-specific schema file
+      schemaFile: config.schemaFile || (
+        dbType === 'postgres'
+          ? path.join(__dirname, 'database-schema-postgres.sql')
+          : path.join(__dirname, 'database-schema.sql')
+      )
     };
 
     this.db = null;
@@ -154,21 +160,49 @@ class DatabaseManager {
    * Run database migrations
    */
   async runMigrations() {
-    console.log('[DB] Running migrations...');
+    console.log(`[DB] Running migrations from ${path.basename(this.config.schemaFile)}...`);
 
     try {
-      // Read schema file
+      // Read schema file (database-specific)
       const schema = fs.readFileSync(this.config.schemaFile, 'utf8');
 
       // Execute schema
       if (this.config.type === 'sqlite') {
+        // SQLite: Execute entire schema at once
         this.db.exec(schema);
         this.saveSQLite();
-      } else {
-        await this.db.query(schema);
-      }
 
-      console.log('[DB] Migrations completed');
+       } else {
+         // PostgreSQL: Execute statements one by one
+           await this.db.query(schema);
+       }
+
+      //   // Split by semicolon and filter empty statements
+      //   const statements = schema.split(';').filter(s => s.trim().length > 0);
+
+      //   for (const stmt of statements) {
+      //     const sql = stmt.trim();
+      //     if (!sql || sql.length === 0) continue;
+
+      //     try {
+      //       await this.db.query(sql);
+      //     } catch (err) {
+      //       // Gracefully handle "already exists" and "duplicate key" errors
+      //       const isIgnorableError =
+      //         err.message.includes('already exists') ||
+      //         err.message.includes('duplicate key value violates unique constraint');
+
+      //       if (isIgnorableError) {
+      //         console.log(`[DB] Skipping (already exists): ${err.message.split('\n')[0]}`);
+      //       } else {
+      //         console.error('[DB] Error executing statement:', sql.substring(0, 100));
+      //         throw err;
+      //       }
+      //     }
+      //   }
+      //}
+
+      console.log('[DB] Migrations completed successfully');
     } catch (error) {
       console.error('[DB] Migration failed:', error.message);
       throw error;
@@ -179,7 +213,7 @@ class DatabaseManager {
    * Execute a query with parameters
    * @param {string} sql - SQL query
    * @param {Array} params - Query parameters
-   * @returns {Promise<Object>} Query result
+   * @returns {Promise<Array|Object>} Query result - Array for SELECT, Object for INSERT/UPDATE/DELETE
    */
   async query(sql, params = []) {
     if (!this.isConnected) {
@@ -194,7 +228,13 @@ class DatabaseManager {
       if (this.config.type === 'sqlite') {
         return this.querySQLite(sql, params);
       } else {
-        return await this.queryPostgreSQL(sql, params);
+        const result = await this.queryPostgreSQL(sql, params);
+        // Normalize PostgreSQL result to match SQLite format for SELECT queries
+        const isSelect = sql.trim().toUpperCase().startsWith('SELECT');
+        if (isSelect) {
+          return result.rows || [];
+        }
+        return result;
       }
     } catch (error) {
       console.error('[DB Error]', error.message);
@@ -336,8 +376,13 @@ class DatabaseManager {
 
       // Only update IP if script is NOT approved
       if (existing.status !== 'approved' && existing.status !== 'auto_approved' && clientIp) {
+        console.log('[DB] Updating existing script with IP:', clientIp);
         updateFields.push('last_registered_ip = ?', 'last_registered_at = CURRENT_TIMESTAMP');
         updateParams.push(clientIp);
+      } else if (existing.status === 'approved' || existing.status === 'auto_approved') {
+        console.log('[DB] Script is approved, skipping IP update');
+      } else if (!clientIp) {
+        console.log('[DB] No clientIp provided, skipping IP update');
       }
 
       updateParams.push(existing.id);
@@ -392,16 +437,32 @@ class DatabaseManager {
         }
 
         // Insert variation with parent reference
-        await this.query(
-          `INSERT INTO scripts (
-            url, content_hash, script_type, size_bytes, content_preview,
-            page_url, discovery_context, status,
-            script_position, parent_script_id, is_variation, variation_number,
-            access_count, last_accessed, last_registered_ip, last_registered_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?, 1, ?, 1, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)`,
-          [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
-           scriptPosition, parentScriptId, nextVariationNumber, clientIp]
-        );
+        // Only include IP fields if clientIp is provided
+        if (clientIp) {
+          console.log('[DB] Inserting variation with IP:', clientIp);
+          await this.query(
+            `INSERT INTO scripts (
+              url, content_hash, script_type, size_bytes, content_preview,
+              page_url, discovery_context, status,
+              script_position, parent_script_id, is_variation, variation_number,
+              access_count, last_accessed, last_registered_ip, last_registered_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?, 1, ?, 1, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)`,
+            [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
+             scriptPosition, parentScriptId, nextVariationNumber, clientIp]
+          );
+        } else {
+          console.log('[DB] Inserting variation WITHOUT IP (clientIp is null/undefined)');
+          await this.query(
+            `INSERT INTO scripts (
+              url, content_hash, script_type, size_bytes, content_preview,
+              page_url, discovery_context, status,
+              script_position, parent_script_id, is_variation, variation_number,
+              access_count, last_accessed
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, ?, 1, ?, 1, CURRENT_TIMESTAMP)`,
+            [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
+             scriptPosition, parentScriptId, nextVariationNumber]
+          );
+        }
 
         // Query back the inserted record
         const inserted = await this.queryOne(
@@ -422,15 +483,30 @@ class DatabaseManager {
     }
 
     // Insert new script (not a variation)
-    await this.query(
-      `INSERT INTO scripts (
-        url, content_hash, script_type, size_bytes, content_preview,
-        page_url, discovery_context, status,
-        script_position, access_count, last_accessed, last_registered_ip, last_registered_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)`,
-      [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
-       scriptType === 'inline' ? scriptPosition : null, clientIp]
-    );
+    // Only include IP fields if clientIp is provided
+    if (clientIp) {
+      console.log('[DB] Inserting new script with IP:', clientIp);
+      await this.query(
+        `INSERT INTO scripts (
+          url, content_hash, script_type, size_bytes, content_preview,
+          page_url, discovery_context, status,
+          script_position, access_count, last_accessed, last_registered_ip, last_registered_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, CURRENT_TIMESTAMP, ?, CURRENT_TIMESTAMP)`,
+        [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
+         scriptType === 'inline' ? scriptPosition : null, clientIp]
+      );
+    } else {
+      console.log('[DB] Inserting new script WITHOUT IP (clientIp is null/undefined)');
+      await this.query(
+        `INSERT INTO scripts (
+          url, content_hash, script_type, size_bytes, content_preview,
+          page_url, discovery_context, status,
+          script_position, access_count, last_accessed
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'pending_approval', ?, 1, CURRENT_TIMESTAMP)`,
+        [url, contentHash, scriptType, sizeBytes, contentPreview, pageUrl, discoveryContext,
+         scriptType === 'inline' ? scriptPosition : null]
+      );
+    }
 
     // Query back the inserted record to get its ID (workaround for sql.js last_insert_rowid issue)
     const inserted = await this.queryOne(
@@ -503,6 +579,42 @@ class DatabaseManager {
     );
 
     return script;
+  }
+
+  /**
+   * Increment access count and get script status by hash
+   * This is the primary method for checking scripts on each page load.
+   */
+  async incrementAccessCountAndGetStatus(contentHash) {
+    // First, check if the script exists to avoid updating nothing
+    const existingScript = await this.getScriptStatus(contentHash);
+    if (!existingScript) {
+      return null; // Or handle as a "not found" case
+    }
+
+    // Now, perform the atomic update and return the updated data
+    if (this.config.type === 'sqlite') {
+      // For SQLite, we perform the update and then a select.
+      // While not a single atomic operation in one command, it's sufficient for this context.
+      await this.query(
+        'UPDATE scripts SET access_count = access_count + 1, last_accessed = CURRENT_TIMESTAMP WHERE content_hash = ?',
+        [contentHash]
+      );
+      // Fetch the updated row to get the new access_count
+      return await this.queryOne(
+        'SELECT id, url, status, approved_at, access_count FROM scripts WHERE content_hash = ?',
+        [contentHash]
+      );
+    } else { // For PostgreSQL, we can use RETURNING to do this in one query
+      const result = await this.query(
+        `UPDATE scripts
+         SET access_count = access_count + 1, last_accessed = CURRENT_TIMESTAMP
+         WHERE content_hash = $1
+         RETURNING id, url, status, approved_at, access_count`,
+        [contentHash]
+      );
+      return result.rows[0];
+    }
   }
 
   /**

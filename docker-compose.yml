@@ -1,0 +1,72 @@
+
+services:
+  postgres:
+    image: postgres:alpine
+    container_name: script-integrity-postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_DB=${PG_DATABASE:-script_integrity}
+      - POSTGRES_USER=${PG_USER:-postgres}
+      - POSTGRES_PASSWORD=${PG_PASSWORD:-postgres}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - script-integrity-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-postgres} -d ${PG_DATABASE:-script_integrity}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: script-integrity-monitor
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - PORT=3000
+      - DB_TYPE=postgres
+      - PG_HOST=postgres
+      - PG_PORT=5432
+      - PG_DATABASE=${PG_DATABASE:-script_integrity}
+      - PG_USER=${PG_USER:-postgres}
+      - PG_PASSWORD=${PG_PASSWORD:-postgres}
+      - PG_SSL=${PG_SSL:-false}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+      - IP_SALT=${IP_SALT:-change-in-production}
+      - JWT_SECRET=${JWT_SECRET:-change-in-production}
+      - JWT_EXPIRES_IN=${JWT_EXPIRES_IN:-1h}
+      - DEFAULT_ADMIN_TOKEN=${DEFAULT_ADMIN_TOKEN:-demo-token-12345}
+      # Email/Slack notifications (optional)
+      - SMTP_HOST=${SMTP_HOST:-}
+      - SMTP_PORT=${SMTP_PORT:-587}
+      - SMTP_USER=${SMTP_USER:-}
+      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL:-}
+    #volumes:
+      # Optional: mount .env file if you want to override
+      # - ./.env:/app/.env:ro
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 40s
+    networks:
+      - script-integrity-network
+
+networks:
+  script-integrity-network:
+    driver: bridge
+
+volumes:
+  postgres-data:
+

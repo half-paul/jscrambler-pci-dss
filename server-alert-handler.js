@@ -26,6 +26,7 @@ const crypto = require('crypto');
 const bcrypt = require('bcrypt');
 const { getDatabase } = require('./database-manager');
 const mfaAuth = require('./auth-mfa');
+const AlertScheduler = require('./alert-scheduler');
 
 const app = express();
 
@@ -103,6 +104,7 @@ const violationLimiter = rateLimit({
 // ============================================================================
 
 let db = null;
+let alertScheduler = null;
 
 async function initializeDatabase() {
   try {
@@ -119,6 +121,11 @@ async function initializeDatabase() {
 
     await db.initialize();
     console.log('[Server] Database initialized successfully');
+
+    // Initialize alert scheduler
+    alertScheduler = new AlertScheduler(db);
+    console.log('[Server] Alert scheduler initialized');
+
   } catch (error) {
     console.error('[Server] Database initialization failed:', error.message);
     throw error;
@@ -692,10 +699,29 @@ app.post('/api/scripts/register', registrationLimiter, async (req, res) => {
     }
 
     // Get client IP address (with privacy hashing if configured)
-    const clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() ||
-                     req.headers['x-real-ip'] ||
-                     req.socket.remoteAddress ||
-                     req.connection.remoteAddress;
+    let clientIp = req.headers['x-forwarded-for']?.split(',')[0].trim() ||
+                   req.headers['x-real-ip'] ||
+                   req.socket.remoteAddress ||
+                   req.connection.remoteAddress;
+    
+    // Normalize IPv6 localhost to IPv4
+    if (clientIp === '::1' || clientIp === '::ffff:127.0.0.1') {
+      clientIp = '127.0.0.1';
+    }
+    
+    // Remove IPv6 prefix if present
+    if (clientIp && clientIp.startsWith('::ffff:')) {
+      clientIp = clientIp.substring(7);
+    }
+    
+    // Only use if we have a valid IP
+    if (!clientIp || clientIp.trim() === '') {
+      clientIp = null;
+    } else {
+      clientIp = clientIp.trim();
+    }
+    
+    console.log('[Registration] Client IP:', clientIp || 'NOT CAPTURED');
 
     // Register script in database
     const result = await db.registerScript({
@@ -751,17 +777,24 @@ app.get('/api/scripts/status/:hash', generalLimiter, async (req, res) => {
   try {
     const { hash } = req.params;
 
-    const script = await db.getScriptStatus(hash);
+    // This now atomically increments the access count and returns the status
+    const script = await db.incrementAccessCountAndGetStatus(hash);
 
     if (!script) {
+      // This is not an error, it just means the script is not registered yet.
+      // The client-side monitor will proceed to register it.
       return res.status(404).json({ error: 'Script not found' });
     }
+
+    // Log the access for audit purposes
+    console.log(`[Status Check] Script accessed: ${script.url} (new access count: ${script.access_count})`);
 
     res.json({
       id: script.id,
       url: script.url,
       status: script.status,
-      approvedAt: script.approved_at
+      approvedAt: script.approved_at,
+      accessCount: script.access_count // Return the new access count
     });
 
   } catch (error) {
@@ -776,6 +809,7 @@ app.get('/api/scripts/status/:hash', generalLimiter, async (req, res) => {
  */
 app.post('/api/scripts/violation', violationLimiter, async (req, res) => {
   try {
+    console.log('[Violation] Received violation report:', req.body); // Add this line
     const {
       scriptUrl,
       oldHash,
@@ -1042,15 +1076,37 @@ app.get('/api/admin/scripts/pending', authenticate, async (req, res) => {
 
 /**
  * GET /api/admin/violations
- * Get integrity violations
+ * Get integrity violations grouped by script_url (same logic as script inventory)
  */
 app.get('/api/admin/violations', authenticate, async (req, res) => {
   try {
+    // Group violations by script_url and count them, similar to script inventory logic
+    // Get the most recent violation details for each script
+    // Use correlated subqueries that work for both SQLite and PostgreSQL
     const violations = await db.query(
-      `SELECT * FROM integrity_violations
-       ORDER BY detected_at DESC
-       LIMIT 100`
+      `SELECT 
+        script_url,
+        COUNT(*) as violation_count,
+        MAX(detected_at) as last_detected_at,
+        (SELECT violation_type FROM integrity_violations v2 
+         WHERE v2.script_url = integrity_violations.script_url 
+         ORDER BY detected_at DESC LIMIT 1) as last_violation_type,
+        (SELECT severity FROM integrity_violations v2 
+         WHERE v2.script_url = integrity_violations.script_url 
+         ORDER BY detected_at DESC LIMIT 1) as highest_severity,
+        (SELECT review_status FROM integrity_violations v2 
+         WHERE v2.script_url = integrity_violations.script_url 
+         ORDER BY detected_at DESC LIMIT 1) as review_status,
+        (SELECT page_url FROM integrity_violations v2 
+         WHERE v2.script_url = integrity_violations.script_url 
+         ORDER BY detected_at DESC LIMIT 1) as last_page_url
+      FROM integrity_violations
+      GROUP BY script_url
+      ORDER BY last_detected_at DESC
+      LIMIT 100`
     );
+
+    console.log('[Admin] Fetched grouped violations:', violations.length);
 
     res.json({
       success: true,
@@ -1337,6 +1393,9 @@ async function startServer() {
   try {
     // Initialize database
     await initializeDatabase();
+
+    // Start alert scheduler
+    await alertScheduler.start();
 
     // Start Express server
     app.listen(PORT, () => {

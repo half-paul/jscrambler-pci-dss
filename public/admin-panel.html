@@ -1101,29 +1101,42 @@
                 return;
             }
 
+            // Group violations by script_url and count (already done on server, but ensure consistency)
+            const severityColors = {
+                'LOW': 'low',
+                'MEDIUM': 'medium',
+                'HIGH': 'high',
+                'CRITICAL': 'critical'
+            };
+
             container.innerHTML = `
                 <table>
                     <thead>
                         <tr>
                             <th>Script</th>
-                            <th>Type</th>
+                            <th>Violation Count</th>
+                            <th>Last Type</th>
                             <th>Severity</th>
-                            <th>Detected</th>
+                            <th>Last Detected</th>
                             <th>Status</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${violations.map(v => `
                             <tr>
-                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${v.script_url}</td>
-                                <td>${v.violation_type}</td>
-                                <td><span class="badge ${v.severity?.toLowerCase()}">${v.severity}</span></td>
-                                <td>${new Date(v.detected_at).toLocaleString()}</td>
-                                <td><span class="badge ${v.review_status}">${v.review_status}</span></td>
+                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(v.script_url)}">${escapeHtml(v.script_url)}</td>
+                                <td><strong>${v.violation_count || 1}</strong></td>
+                                <td>${v.last_violation_type || '-'}</td>
+                                <td><span class="badge ${severityColors[v.highest_severity] || 'high'}">${v.highest_severity || 'HIGH'}</span></td>
+                                <td>${v.last_detected_at ? new Date(v.last_detected_at).toLocaleString() : '-'}</td>
+                                <td><span class="badge ${v.review_status || 'pending'}">${v.review_status || 'pending'}</span></td>
                             </tr>
                         `).join('')}
                     </tbody>
                 </table>
+                <div style="margin-top: 20px; color: #666; font-size: 14px;">
+                    Showing ${violations.length} script${violations.length !== 1 ? 's' : ''} with violations
+                </div>
             `;
         }
 

@@ -9,6 +9,7 @@
     "db:init": "node scripts/init-database.js",
     "db:seed": "node scripts/seed-database.js",
     "test": "echo \"Open test-script-integrity.html in a browser to run tests\"",
+    "test:api": "mocha test-access-count.js",
     "generate-hashes": "node scripts/generate-hashes.js"
   },
   "keywords": [
@@ -23,13 +24,16 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
+    "axios": "^1.13.2",
     "bcrypt": "^5.1.1",
+    "chai": "^6.2.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
     "jsonwebtoken": "^9.0.2",
+    "mocha": "^11.7.5",
     "nodemailer": "^6.9.7",
     "pg": "^8.11.3",
     "qrcode": "^1.5.4",

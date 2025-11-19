@@ -1,8 +1,8 @@
 /**
- * Database Schema for Script Integrity Monitoring System
+ * PostgreSQL Database Schema for Script Integrity Monitoring System
  * PCI DSS v4.0 Requirement 6.4.3 Compliance
  *
- * This schema supports both SQLite (development) and PostgreSQL (production)
+ * Native PostgreSQL schema with proper data types, triggers, and constraints
  * Auto-detection workflow with approval process
  *
  * @version 1.0.0
@@ -13,58 +13,58 @@
 -- ============================================================================
 -- Stores all detected scripts with approval status
 CREATE TABLE IF NOT EXISTS scripts (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Use SERIAL for PostgreSQL
+    id SERIAL PRIMARY KEY,
 
     -- Script Identification
-    url TEXT NOT NULL,                      -- Script URL (full URL for external, identifier for inline)
-    content_hash TEXT NOT NULL,             -- SHA-384 hash of script content
+    url TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
     script_type TEXT NOT NULL CHECK(script_type IN ('inline', 'external')),
 
     -- Script Metadata
-    size_bytes INTEGER,                     -- Script size in bytes
-    content_preview TEXT,                   -- First 500 chars of content (for review)
+    size_bytes INTEGER,
+    content_preview TEXT,
 
     -- Discovery Information
-    first_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_seen DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    page_url TEXT NOT NULL,                 -- Page where script was first discovered
-    discovery_context TEXT,                 -- Additional context (loadType, iframe, etc.)
+    first_seen TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_seen TIMESTAMP NOT NULL DEFAULT NOW(),
+    page_url TEXT NOT NULL,
+    discovery_context TEXT,
 
     -- Approval Status
     status TEXT NOT NULL DEFAULT 'pending_approval'
         CHECK(status IN ('pending_approval', 'approved', 'rejected', 'flagged', 'auto_approved')),
 
     -- Approval Metadata
-    approved_by TEXT,                       -- Username or admin ID who approved/rejected
-    approved_at DATETIME,                   -- When approval decision was made
-    rejection_reason TEXT,                  -- Reason for rejection (if applicable)
-    approval_notes TEXT,                    -- Additional notes from approver
+    approved_by TEXT,
+    approved_at TIMESTAMP,
+    rejection_reason TEXT,
+    approval_notes TEXT,
 
     -- Business Justification (PCI DSS requirement)
-    business_justification TEXT,            -- Required written justification
-    script_purpose TEXT,                    -- What the script does
-    script_owner TEXT,                      -- Who owns/maintains this script
+    business_justification TEXT,
+    script_purpose TEXT,
+    script_owner TEXT,
 
     -- Risk Assessment
     risk_level TEXT CHECK(risk_level IN ('low', 'medium', 'high', 'critical')),
-    requires_review_date DATETIME,          -- When script needs re-review
+    requires_review_date TIMESTAMP,
 
-    -- Access Tracking (NEW)
-    access_count INTEGER DEFAULT 0,         -- How many times this script was loaded/accessed
-    last_accessed DATETIME,                 -- Last time this script was accessed
+    -- Access Tracking
+    access_count INTEGER DEFAULT 0,
+    last_accessed TIMESTAMP,
 
-    -- Registration Tracking (NEW)
-    last_registered_ip TEXT,                -- IP address of client that last registered this script (cleared on approval)
-    last_registered_at DATETIME,            -- When script was last registered (for non-approved scripts)
+    -- Registration Tracking
+    last_registered_ip TEXT,
+    last_registered_at TIMESTAMP,
 
-    -- Inline Script Variation Tracking (NEW)
-    script_position INTEGER,                -- Position/index of inline script in page (NULL for external)
-    parent_script_id INTEGER,               -- References parent script if this is a variation
-    is_variation BOOLEAN DEFAULT 0,         -- Flag indicating this is a variation of another script
-    variation_number INTEGER,               -- Sequential variation number (1, 2, 3...)
+    -- Inline Script Variation Tracking
+    script_position INTEGER,
+    parent_script_id INTEGER,
+    is_variation BOOLEAN DEFAULT FALSE,
+    variation_number INTEGER,
 
-    -- Indexing for performance
-    UNIQUE(url, content_hash),              -- Prevent duplicate entries
+    -- Constraints
+    UNIQUE(url, content_hash),
     FOREIGN KEY (parent_script_id) REFERENCES scripts(id) ON DELETE SET NULL
 );
 
@@ -83,32 +83,32 @@ CREATE INDEX IF NOT EXISTS idx_scripts_access_count ON scripts(access_count);
 -- ============================================================================
 -- Stores detected integrity violations (hash mismatches, unauthorized changes)
 CREATE TABLE IF NOT EXISTS integrity_violations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Use SERIAL for PostgreSQL
+    id SERIAL PRIMARY KEY,
 
     -- Reference to script (if known)
-    script_id INTEGER,                      -- NULL if script not in inventory yet
+    script_id INTEGER,
 
     -- Violation Details
-    script_url TEXT NOT NULL,               -- Script URL or identifier
-    old_hash TEXT,                          -- Expected hash (from baseline)
-    new_hash TEXT NOT NULL,                 -- Actual hash detected
+    script_url TEXT NOT NULL,
+    old_hash TEXT,
+    new_hash TEXT NOT NULL,
     violation_type TEXT NOT NULL CHECK(violation_type IN (
-        'HASH_MISMATCH',                    -- Known script with changed content
-        'NO_BASELINE_HASH',                 -- New/unknown script
-        'SRI_MISMATCH',                     -- SRI attribute doesn't match
-        'UNAUTHORIZED_SCRIPT',              -- Script not in approved list
-        'PROCESSING_ERROR',                 -- Error during processing
-        'PENDING_APPROVAL',                 -- Script is new and awaiting approval
-        'NEW_SCRIPT',                       -- Script is new and has been auto-registered
-        'REJECTED_BY_ADMIN'                 -- Script has been rejected by an admin
+        'HASH_MISMATCH',
+        'NO_BASELINE_HASH',
+        'SRI_MISMATCH',
+        'UNAUTHORIZED_SCRIPT',
+        'PROCESSING_ERROR',
+        'PENDING_APPROVAL',
+        'NEW_SCRIPT',
+        'REJECTED_BY_ADMIN'
     )),
 
     -- Detection Context
-    detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    page_url TEXT NOT NULL,                 -- Page where violation occurred
-    user_session TEXT,                      -- Session identifier (hashed)
-    user_agent TEXT,                        -- Browser user agent
-    ip_address TEXT,                        -- Client IP (hashed for privacy)
+    detected_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    page_url TEXT NOT NULL,
+    user_session TEXT,
+    user_agent TEXT,
+    ip_address TEXT,
 
     -- Severity
     severity TEXT NOT NULL DEFAULT 'HIGH'
@@ -121,12 +121,12 @@ CREATE TABLE IF NOT EXISTS integrity_violations (
     review_status TEXT DEFAULT 'pending'
         CHECK(review_status IN ('pending', 'investigating', 'resolved', 'false_positive', 'confirmed_attack')),
     reviewed_by TEXT,
-    reviewed_at DATETIME,
+    reviewed_at TIMESTAMP,
     review_notes TEXT,
 
     -- Additional Metadata
-    load_type TEXT,                         -- How script was loaded (initial-load, dynamic, etc.)
-    context TEXT,                           -- Additional context (JSON format)
+    load_type TEXT,
+    context TEXT,
 
     FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE SET NULL
 );
@@ -144,15 +144,15 @@ CREATE INDEX IF NOT EXISTS idx_violations_url ON integrity_violations(script_url
 -- ============================================================================
 -- Maintains complete audit trail of all approval decisions
 CREATE TABLE IF NOT EXISTS approval_audit_log (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Use SERIAL for PostgreSQL
+    id SERIAL PRIMARY KEY,
 
     script_id INTEGER NOT NULL,
     action TEXT NOT NULL CHECK(action IN ('approved', 'rejected', 'flagged', 'unflagged', 'status_changed')),
     previous_status TEXT,
     new_status TEXT NOT NULL,
 
-    performed_by TEXT NOT NULL,             -- Admin username or ID
-    performed_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    performed_by TEXT NOT NULL,
+    performed_at TIMESTAMP NOT NULL DEFAULT NOW(),
     reason TEXT,
     notes TEXT,
 
@@ -173,36 +173,36 @@ CREATE INDEX IF NOT EXISTS idx_audit_performed_by ON approval_audit_log(performe
 -- ============================================================================
 -- Stores admin users authorized to approve scripts
 CREATE TABLE IF NOT EXISTS admin_users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Use SERIAL for PostgreSQL
+    id SERIAL PRIMARY KEY,
 
     username TEXT UNIQUE NOT NULL,
     email TEXT UNIQUE NOT NULL,
 
     -- Authentication
-    password_hash TEXT NOT NULL,            -- Hashed password (bcrypt)
-    api_token TEXT UNIQUE,                  -- API token for authentication (deprecated, kept for compatibility)
-    api_token_created_at DATETIME,
+    password_hash TEXT NOT NULL,
+    api_token TEXT UNIQUE,
+    api_token_created_at TIMESTAMP,
 
     -- MFA (Multi-Factor Authentication)
-    mfa_enabled BOOLEAN NOT NULL DEFAULT 0, -- Whether MFA is enabled
-    mfa_secret TEXT,                        -- TOTP secret (encrypted)
-    mfa_backup_codes TEXT,                  -- JSON array of hashed backup codes
-    mfa_setup_at DATETIME,                  -- When MFA was first enabled
+    mfa_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    mfa_secret TEXT,
+    mfa_backup_codes TEXT,
+    mfa_setup_at TIMESTAMP,
 
     -- Role and Permissions
     role TEXT NOT NULL DEFAULT 'reviewer'
         CHECK(role IN ('viewer', 'reviewer', 'admin', 'super_admin')),
 
     -- Status
-    is_active BOOLEAN NOT NULL DEFAULT 1,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
 
     -- Timestamps
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_login_at DATETIME,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_login_at TIMESTAMP,
 
     -- Security
     failed_login_attempts INTEGER DEFAULT 0,
-    locked_until DATETIME
+    locked_until TIMESTAMP
 );
 
 -- Index for admin users
@@ -215,21 +215,21 @@ CREATE INDEX IF NOT EXISTS idx_admin_email ON admin_users(email);
 -- ============================================================================
 -- Tracks active admin sessions with JWT tokens
 CREATE TABLE IF NOT EXISTS admin_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
 
     admin_id INTEGER NOT NULL,
-    jwt_token TEXT UNIQUE NOT NULL,         -- JWT token
-    refresh_token TEXT UNIQUE NOT NULL,     -- Refresh token for renewing JWT
+    jwt_token TEXT UNIQUE NOT NULL,
+    refresh_token TEXT UNIQUE NOT NULL,
 
     -- Session Info
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    expires_at DATETIME NOT NULL,
-    last_activity DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMP NOT NULL,
+    last_activity TIMESTAMP NOT NULL DEFAULT NOW(),
 
     -- Security
     ip_address TEXT,
     user_agent TEXT,
-    is_revoked BOOLEAN DEFAULT 0,
+    is_revoked BOOLEAN DEFAULT FALSE,
 
     FOREIGN KEY (admin_id) REFERENCES admin_users(id) ON DELETE CASCADE
 );
@@ -248,14 +248,13 @@ CREATE TABLE IF NOT EXISTS system_config (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL,
     description TEXT,
-    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_by TEXT
 );
 
-SELECT * FROM system_config;  -- Dummy query to ensure table exists
-
 -- Insert default configuration
-INSERT INTO system_config (key, value, description) VALUES
+INSERT INTO system_config (key, value, description)
+VALUES
     ('auto_approval_enabled', 'false', 'Enable automatic approval for whitelisted domains'),
     ('auto_approval_domains', '[]', 'JSON array of domains for auto-approval'),
     ('hash_algorithm', 'SHA-384', 'Hash algorithm used for integrity checks'),
@@ -270,17 +269,18 @@ INSERT INTO system_config (key, value, description) VALUES
     ('alert_violations_enabled', 'false', 'Enable alerts for integrity violations'),
     ('alert_new_scripts_enabled', 'false', 'Enable alerts for new pending scripts'),
     ('alert_last_sent_violations', '', 'Timestamp of last violation alert sent (internal)'),
-    ('alert_last_sent_new_scripts', '', 'Timestamp of last new script alert sent (internal)');
+    ('alert_last_sent_new_scripts', '', 'Timestamp of last new script alert sent (internal)')
+ON CONFLICT (key) DO NOTHING;
 
 -- ============================================================================
 -- NOTIFICATION QUEUE TABLE
 -- ============================================================================
 -- Queue for pending notifications (email, Slack, etc.)
 CREATE TABLE IF NOT EXISTS notification_queue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
 
     notification_type TEXT NOT NULL CHECK(notification_type IN ('email', 'slack', 'sms', 'webhook')),
-    recipient TEXT NOT NULL,                -- Email address, Slack channel, phone number
+    recipient TEXT NOT NULL,
 
     subject TEXT,
     message TEXT NOT NULL,
@@ -296,8 +296,8 @@ CREATE TABLE IF NOT EXISTS notification_queue (
     attempts INTEGER DEFAULT 0,
     max_attempts INTEGER DEFAULT 3,
 
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    sent_at DATETIME,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    sent_at TIMESTAMP,
     error_message TEXT,
 
     FOREIGN KEY (script_id) REFERENCES scripts(id) ON DELETE SET NULL,
@@ -314,20 +314,20 @@ CREATE INDEX IF NOT EXISTS idx_notifications_priority ON notification_queue(prio
 -- ============================================================================
 -- Track relationships between scripts (dependencies, loaded by, etc.)
 CREATE TABLE IF NOT EXISTS script_relationships (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id SERIAL PRIMARY KEY,
 
-    parent_script_id INTEGER NOT NULL,      -- Script that loads another
-    child_script_id INTEGER NOT NULL,       -- Script being loaded
+    parent_script_id INTEGER NOT NULL,
+    child_script_id INTEGER NOT NULL,
 
     relationship_type TEXT NOT NULL CHECK(relationship_type IN (
-        'loads',                            -- Parent loads child
-        'depends_on',                       -- Parent depends on child
-        'loaded_by_page',                   -- Script loaded by specific page
-        'injected_by'                       -- Script injected by another
+        'loads',
+        'depends_on',
+        'loaded_by_page',
+        'injected_by'
     )),
 
-    first_observed DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    last_observed DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    first_observed TIMESTAMP NOT NULL DEFAULT NOW(),
+    last_observed TIMESTAMP NOT NULL DEFAULT NOW(),
     observation_count INTEGER DEFAULT 1,
 
     UNIQUE(parent_script_id, child_script_id, relationship_type),
@@ -340,7 +340,7 @@ CREATE TABLE IF NOT EXISTS script_relationships (
 -- ============================================================================
 
 -- View: Pending Approvals
-CREATE VIEW IF NOT EXISTS v_pending_approvals AS
+CREATE OR REPLACE VIEW v_pending_approvals AS
 SELECT
     s.id,
     s.url,
@@ -364,7 +364,7 @@ GROUP BY s.id
 ORDER BY s.first_seen ASC;
 
 -- View: Recent Violations
-CREATE VIEW IF NOT EXISTS v_recent_violations AS
+CREATE OR REPLACE VIEW v_recent_violations AS
 SELECT
     iv.*,
     s.url as script_url_full,
@@ -375,7 +375,7 @@ LEFT JOIN scripts s ON iv.script_id = s.id
 ORDER BY iv.detected_at DESC;
 
 -- View: Compliance Summary
-CREATE VIEW IF NOT EXISTS v_compliance_summary AS
+CREATE OR REPLACE VIEW v_compliance_summary AS
 SELECT
     COUNT(*) as total_scripts,
     COALESCE(SUM(CASE WHEN status = 'approved' THEN 1 ELSE 0 END), 0) as approved_scripts,
@@ -384,12 +384,12 @@ SELECT
     COALESCE(SUM(CASE WHEN status = 'flagged' THEN 1 ELSE 0 END), 0) as flagged_scripts,
     COALESCE(SUM(CASE WHEN script_type = 'inline' THEN 1 ELSE 0 END), 0) as inline_scripts,
     COALESCE(SUM(CASE WHEN script_type = 'external' THEN 1 ELSE 0 END), 0) as external_scripts,
-    COALESCE(SUM(CASE WHEN is_variation = 1 THEN 1 ELSE 0 END), 0) as variation_scripts,
+    COALESCE(SUM(CASE WHEN is_variation = TRUE THEN 1 ELSE 0 END), 0) as variation_scripts,
     COALESCE(SUM(access_count), 0) as total_accesses
 FROM scripts;
 
 -- View: Violation Statistics
-CREATE VIEW IF NOT EXISTS v_violation_statistics AS
+CREATE OR REPLACE VIEW v_violation_statistics AS
 SELECT
     COUNT(*) as total_violations,
     COALESCE(SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END), 0) as critical_count,
@@ -401,41 +401,56 @@ SELECT
 FROM integrity_violations;
 
 -- ============================================================================
--- TRIGGERS (for SQLite - adapt for PostgreSQL)
+-- TRIGGERS
 -- ============================================================================
 
--- Update last_seen timestamp when script is detected again
-CREATE TRIGGER IF NOT EXISTS update_script_last_seen
-AFTER INSERT ON integrity_violations
-FOR EACH ROW
+-- Trigger 1: Update last_seen timestamp when violation is inserted
+CREATE OR REPLACE FUNCTION update_script_last_seen_func()
+RETURNS TRIGGER AS $$
 BEGIN
     UPDATE scripts
-    SET last_seen = CURRENT_TIMESTAMP
+    SET last_seen = NOW()
     WHERE id = NEW.script_id;
+    RETURN NEW;
 END;
+$$ LANGUAGE plpgsql;
 
--- Log approval changes to audit log
-CREATE TRIGGER IF NOT EXISTS log_script_approval_changes
+DROP TRIGGER IF EXISTS update_script_last_seen ON integrity_violations;
+CREATE TRIGGER update_script_last_seen
+AFTER INSERT ON integrity_violations
+FOR EACH ROW
+EXECUTE FUNCTION update_script_last_seen_func();
+
+-- Trigger 2: Log approval changes to audit log
+CREATE OR REPLACE FUNCTION log_script_approval_changes_func()
+RETURNS TRIGGER AS $$
+BEGIN
+    IF OLD.status IS DISTINCT FROM NEW.status THEN
+        INSERT INTO approval_audit_log (
+            script_id,
+            action,
+            previous_status,
+            new_status,
+            performed_by,
+            notes
+        ) VALUES (
+            NEW.id,
+            'status_changed',
+            OLD.status,
+            NEW.status,
+            NEW.approved_by,
+            NEW.approval_notes
+        );
+    END IF;
+    RETURN NEW;
+END
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS log_script_approval_changes ON scripts;
+CREATE TRIGGER log_script_approval_changes
 AFTER UPDATE ON scripts
 FOR EACH ROW
-WHEN OLD.status != NEW.status
-BEGIN
-    INSERT INTO approval_audit_log (
-        script_id,
-        action,
-        previous_status,
-        new_status,
-        performed_by,
-        notes
-    ) VALUES (
-        NEW.id,
-        'status_changed',
-        OLD.status,
-        NEW.status,
-        NEW.approved_by,
-        NEW.approval_notes
-    );
-END;
+EXECUTE FUNCTION log_script_approval_changes_func();
 
 -- ============================================================================
 -- SAMPLE DATA FOR TESTING (Optional - remove in production)
@@ -443,29 +458,6 @@ END;
 
 -- Sample admin user (password: 'admin123' - CHANGE IN PRODUCTION!)
 -- Password hash generated with bcrypt
-INSERT OR IGNORE INTO admin_users (username, email, password_hash, role, api_token) VALUES
-    ('admin', 'admin@example.com', '$2b$10$YV65lKzIz/IUvZmpKB9IWeBG3j/Tz3Wg022hoSyN7cKXEMreEQBlW', 'admin', 'demo-token-12345');
-
--- ============================================================================
--- POSTGRESQL SPECIFIC MODIFICATIONS
--- ============================================================================
--- When migrating to PostgreSQL, make these changes:
---
--- 1. Replace INTEGER PRIMARY KEY AUTOINCREMENT with SERIAL PRIMARY KEY
--- 2. Replace DATETIME with TIMESTAMP
--- 3. Replace BOOLEAN with BOOLEAN (already compatible)
--- 4. Replace INSERT OR IGNORE with INSERT ... ON CONFLICT DO NOTHING
--- 5. Rewrite triggers using PostgreSQL syntax (CREATE OR REPLACE FUNCTION + CREATE TRIGGER)
--- 6. Use appropriate timestamp functions (NOW() instead of CURRENT_TIMESTAMP)
---
--- Example PostgreSQL serial:
--- id SERIAL PRIMARY KEY,
---
--- Example PostgreSQL timestamp:
--- created_at TIMESTAMP NOT NULL DEFAULT NOW(),
---
--- Example PostgreSQL insert:
--- INSERT INTO system_config (key, value, description)
--- VALUES ('key', 'value', 'desc')
--- ON CONFLICT (key) DO NOTHING;
--- ============================================================================
+INSERT INTO admin_users (username, email, password_hash, role, api_token)
+VALUES ('admin', 'admin@example.com', '$2b$10$YV65lKzIz/IUvZmpKB9IWeBG3j/Tz3Wg022hoSyN7cKXEMreEQBlW', 'admin', 'demo-token-12345')
+ON CONFLICT (username) DO NOTHING;
