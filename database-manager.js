@@ -26,8 +26,10 @@ const path = require('path');
  */
 class DatabaseManager {
   constructor(config = {}) {
+    const dbType = config.type || process.env.DB_TYPE || 'sqlite';
+
     this.config = {
-      type: config.type || process.env.DB_TYPE || 'sqlite', // 'sqlite' or 'postgres'
+      type: dbType, // 'sqlite' or 'postgres'
 
       // SQLite configuration
       sqlitePath: config.sqlitePath || process.env.SQLITE_PATH || './data/integrity-monitor.db',
@@ -47,8 +49,12 @@ class DatabaseManager {
       // Logging
       logQueries: config.logQueries !== false,
 
-      // Schema
-      schemaFile: config.schemaFile || path.join(__dirname, 'database-schema.sql')
+      // Schema - use database-specific schema file
+      schemaFile: config.schemaFile || (
+        dbType === 'postgres'
+          ? path.join(__dirname, 'database-schema-postgres.sql')
+          : path.join(__dirname, 'database-schema.sql')
+      )
     };
 
     this.db = null;
@@ -154,73 +160,30 @@ class DatabaseManager {
    * Run database migrations
    */
   async runMigrations() {
-    console.log('[DB] Running migrations...');
+    console.log(`[DB] Running migrations from ${path.basename(this.config.schemaFile)}...`);
 
     try {
-      // Read schema file
-      let schema = fs.readFileSync(this.config.schemaFile, 'utf8');
-
-      // Adapt schema for PostgreSQL if necessary
-      if (this.config.type === 'postgres') {
-        schema = schema.replace(/INTEGER PRIMARY KEY AUTOINCREMENT/g, 'SERIAL PRIMARY KEY');
-        schema = schema.replace(/DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP/g, 'TIMESTAMP NOT NULL DEFAULT NOW()');
-        schema = schema.replace(/DATETIME,/g, 'TIMESTAMP,');
-        schema = schema.replace(/DATETIME\)/g, 'TIMESTAMP)');
-        schema = schema.replace(/DATETIME NOT NULL/g, 'TIMESTAMP NOT NULL');
-        schema = schema.replace(/DATETIME/g, 'TIMESTAMP');
-        schema = schema.replace(/BOOLEAN NOT NULL DEFAULT 0/g, 'BOOLEAN NOT NULL DEFAULT FALSE');
-        schema = schema.replace(/BOOLEAN NOT NULL DEFAULT 1/g, 'BOOLEAN NOT NULL DEFAULT TRUE');
-        schema = schema.replace(/BOOLEAN DEFAULT 0/g, 'BOOLEAN DEFAULT FALSE');
-        schema = schema.replace(/BOOLEAN DEFAULT 1/g, 'BOOLEAN DEFAULT TRUE');
-        schema = schema.replace(/BOOLEAN,/g, 'BOOLEAN,');
-        schema = schema.replace(/ON DELETE SET NULL/g, 'ON DELETE SET NULL DEFERRABLE INITIALLY IMMEDIATE'); // For foreign key constraints
-        schema = schema.replace(/ON DELETE CASCADE/g, 'ON DELETE CASCADE DEFERRABLE INITIALLY IMMEDIATE'); // For foreign key constraints
-        // Remove SQLite-specific PRAGMA statements
-        schema = schema.replace(/PRAGMA foreign_keys = ON;/g, '');
-        // Remove SQLite-specific AUTOINCREMENT from other places if any
-        schema = schema.replace(/AUTOINCREMENT/g, '');
-
-        // Remove SQLite-specific triggers (we'll create PostgreSQL versions separately)
-        schema = this.removeSQLiteTriggers(schema);
-      }
+      // Read schema file (database-specific)
+      const schema = fs.readFileSync(this.config.schemaFile, 'utf8');
 
       // Execute schema
       if (this.config.type === 'sqlite') {
+        // SQLite: Execute entire schema at once
         this.db.exec(schema);
         this.saveSQLite();
       } else {
-        // For PostgreSQL, execute statements one by one as some might be CREATE VIEW or CREATE TRIGGER
-        // which cannot be in a single query with CREATE TABLE IF NOT EXISTS
+        // PostgreSQL: Execute statements one by one
+        // Split by semicolon and filter empty statements
         const statements = schema.split(';').filter(s => s.trim().length > 0);
+
         for (const stmt of statements) {
-          let sql = stmt.trim();
-
-          // Skip empty statements
+          const sql = stmt.trim();
           if (!sql || sql.length === 0) continue;
-
-          if (this.config.type === 'postgres' && /^INSERT OR IGNORE INTO/i.test(sql)) {
-            console.log('[DB] Converting INSERT OR IGNORE statement...');
-            // Convert SQLite-style INSERT OR IGNORE into PostgreSQL ON CONFLICT DO NOTHING
-            sql = sql.replace(/^INSERT OR IGNORE INTO/i, 'INSERT INTO');
-
-            // Determine the appropriate conflict target based on table
-            let conflictTarget = '';
-            if (sql.includes('admin_users')) {
-              conflictTarget = ' (username)';
-            } else if (sql.includes('system_config')) {
-              conflictTarget = ' (key)';
-            }
-
-            if (!/ON CONFLICT/.test(sql)) {
-              sql = `${sql} ON CONFLICT${conflictTarget} DO NOTHING`;
-            }
-            console.log(`[DB] Converted to: ${sql.substring(0, 100)}... ON CONFLICT${conflictTarget} DO NOTHING`);
-          }
 
           try {
             await this.db.query(sql);
           } catch (err) {
-            // Log but continue if it's a "already exists" or "duplicate key" error
+            // Gracefully handle "already exists" and "duplicate key" errors
             const isIgnorableError =
               err.message.includes('already exists') ||
               err.message.includes('duplicate key value violates unique constraint');
@@ -228,104 +191,17 @@ class DatabaseManager {
             if (isIgnorableError) {
               console.log(`[DB] Skipping (already exists): ${err.message.split('\n')[0]}`);
             } else {
+              console.error('[DB] Error executing statement:', sql.substring(0, 100));
               throw err;
             }
           }
         }
-
-        // Create PostgreSQL-specific triggers
-        await this.createPostgreSQLTriggers();
       }
 
-      console.log('[DB] Migrations completed');
+      console.log('[DB] Migrations completed successfully');
     } catch (error) {
       console.error('[DB] Migration failed:', error.message);
       throw error;
-    }
-  }
-
-  /**
-   * Remove SQLite-specific triggers from schema
-   * @param {string} schema - SQL schema
-   * @returns {string} Schema without SQLite triggers
-   */
-  removeSQLiteTriggers(schema) {
-    // Remove SQLite trigger blocks (CREATE TRIGGER ... END;)
-    const triggerRegex = /CREATE TRIGGER[^;]*?BEGIN[\s\S]*?END;/gi;
-    return schema.replace(triggerRegex, '');
-  }
-
-  /**
-   * Create PostgreSQL-compatible triggers
-   */
-  async createPostgreSQLTriggers() {
-    console.log('[DB] Creating PostgreSQL triggers...');
-
-    // Trigger 1: Update last_seen timestamp when violation is inserted
-    const updateLastSeenFunction = `
-      CREATE OR REPLACE FUNCTION update_script_last_seen_func()
-      RETURNS TRIGGER AS $$
-      BEGIN
-        UPDATE scripts
-        SET last_seen = NOW()
-        WHERE id = NEW.script_id;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-    `;
-
-    const updateLastSeenTrigger = `
-      DROP TRIGGER IF EXISTS update_script_last_seen ON integrity_violations;
-      CREATE TRIGGER update_script_last_seen
-      AFTER INSERT ON integrity_violations
-      FOR EACH ROW
-      EXECUTE FUNCTION update_script_last_seen_func();
-    `;
-
-    // Trigger 2: Log approval changes to audit log
-    const logApprovalFunction = `
-      CREATE OR REPLACE FUNCTION log_script_approval_changes_func()
-      RETURNS TRIGGER AS $$
-      BEGIN
-        IF OLD.status IS DISTINCT FROM NEW.status THEN
-          INSERT INTO approval_audit_log (
-            script_id,
-            action,
-            previous_status,
-            new_status,
-            performed_by,
-            notes
-          ) VALUES (
-            NEW.id,
-            'status_changed',
-            OLD.status,
-            NEW.status,
-            NEW.approved_by,
-            NEW.approval_notes
-          );
-        END IF;
-        RETURN NEW;
-      END;
-      $$ LANGUAGE plpgsql;
-    `;
-
-    const logApprovalTrigger = `
-      DROP TRIGGER IF EXISTS log_script_approval_changes ON scripts;
-      CREATE TRIGGER log_script_approval_changes
-      AFTER UPDATE ON scripts
-      FOR EACH ROW
-      EXECUTE FUNCTION log_script_approval_changes_func();
-    `;
-
-    try {
-      await this.db.query(updateLastSeenFunction);
-      await this.db.query(updateLastSeenTrigger);
-      await this.db.query(logApprovalFunction);
-      await this.db.query(logApprovalTrigger);
-      console.log('[DB] PostgreSQL triggers created successfully');
-    } catch (err) {
-      console.error('[DB] Error creating triggers:', err.message);
-      // Don't throw - triggers are nice-to-have but not critical
     }
   }
 
