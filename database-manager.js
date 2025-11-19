@@ -171,32 +171,36 @@ class DatabaseManager {
         // SQLite: Execute entire schema at once
         this.db.exec(schema);
         this.saveSQLite();
-      } else {
-        // PostgreSQL: Execute statements one by one
-        // Split by semicolon and filter empty statements
-        const statements = schema.split(';').filter(s => s.trim().length > 0);
 
-        for (const stmt of statements) {
-          const sql = stmt.trim();
-          if (!sql || sql.length === 0) continue;
+       } else {
+         // PostgreSQL: Execute statements one by one
+           await this.db.query(schema);
+       }
 
-          try {
-            await this.db.query(sql);
-          } catch (err) {
-            // Gracefully handle "already exists" and "duplicate key" errors
-            const isIgnorableError =
-              err.message.includes('already exists') ||
-              err.message.includes('duplicate key value violates unique constraint');
+      //   // Split by semicolon and filter empty statements
+      //   const statements = schema.split(';').filter(s => s.trim().length > 0);
 
-            if (isIgnorableError) {
-              console.log(`[DB] Skipping (already exists): ${err.message.split('\n')[0]}`);
-            } else {
-              console.error('[DB] Error executing statement:', sql.substring(0, 100));
-              throw err;
-            }
-          }
-        }
-      }
+      //   for (const stmt of statements) {
+      //     const sql = stmt.trim();
+      //     if (!sql || sql.length === 0) continue;
+
+      //     try {
+      //       await this.db.query(sql);
+      //     } catch (err) {
+      //       // Gracefully handle "already exists" and "duplicate key" errors
+      //       const isIgnorableError =
+      //         err.message.includes('already exists') ||
+      //         err.message.includes('duplicate key value violates unique constraint');
+
+      //       if (isIgnorableError) {
+      //         console.log(`[DB] Skipping (already exists): ${err.message.split('\n')[0]}`);
+      //       } else {
+      //         console.error('[DB] Error executing statement:', sql.substring(0, 100));
+      //         throw err;
+      //       }
+      //     }
+      //   }
+      //}
 
       console.log('[DB] Migrations completed successfully');
     } catch (error) {
