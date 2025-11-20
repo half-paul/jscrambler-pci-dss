@@ -443,7 +443,7 @@ BEGIN
         );
     END IF;
     RETURN NEW;
-END
+END;
 $$ LANGUAGE plpgsql;
 
 DROP TRIGGER IF EXISTS log_script_approval_changes ON scripts;
@@ -458,6 +458,6 @@ EXECUTE FUNCTION log_script_approval_changes_func();
 
 -- Sample admin user (password: 'admin123' - CHANGE IN PRODUCTION!)
 -- Password hash generated with bcrypt
-INSERT INTO admin_users (username, email, password_hash, role, api_token)
-VALUES ('admin', 'admin@example.com', '$2b$10$YV65lKzIz/IUvZmpKB9IWeBG3j/Tz3Wg022hoSyN7cKXEMreEQBlW', 'admin', 'demo-token-12345')
+INSERT INTO admin_users (username, email, password_hash, role, api_token) VALUES
+    ('admin', 'admin@example.com', '$2b$10$YV65lKzIz/IUvZmpKB9IWeBG3j/Tz3Wg022hoSyN7cKXEMreEQBlW', 'admin', 'demo-token-12345')
 ON CONFLICT (username) DO NOTHING;

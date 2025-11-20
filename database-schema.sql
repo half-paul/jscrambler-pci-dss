@@ -255,7 +255,7 @@ CREATE TABLE IF NOT EXISTS system_config (
 SELECT * FROM system_config;  -- Dummy query to ensure table exists
 
 -- Insert default configuration
-INSERT INTO system_config (key, value, description) VALUES
+INSERT OR IGNORE INTO system_config (key, value, description) VALUES
     ('auto_approval_enabled', 'false', 'Enable automatic approval for whitelisted domains'),
     ('auto_approval_domains', '[]', 'JSON array of domains for auto-approval'),
     ('hash_algorithm', 'SHA-384', 'Hash algorithm used for integrity checks'),

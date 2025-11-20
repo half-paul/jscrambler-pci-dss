@@ -151,7 +151,7 @@ async function authenticate(req, res, next) {
 
       // Check if session is valid and not revoked
       const session = await db.queryOne(
-        'SELECT * FROM admin_sessions WHERE jwt_token = ? AND is_revoked = 0',
+        'SELECT * FROM admin_sessions WHERE jwt_token = ? AND is_revoked = false',
         [token]
       );
 
@@ -163,7 +163,7 @@ async function authenticate(req, res, next) {
 
         // Get admin user
         const admin = await db.queryOne(
-          'SELECT * FROM admin_users WHERE id = ? AND is_active = 1',
+          'SELECT * FROM admin_users WHERE id = ? AND is_active = true',
           [decoded.id]
         );
 
@@ -193,7 +193,7 @@ async function authenticate(req, res, next) {
 
     // Fall back to legacy API token authentication
     const admin = await db.queryOne(
-      'SELECT * FROM admin_users WHERE api_token = ? AND is_active = 1',
+      'SELECT * FROM admin_users WHERE api_token = ? AND is_active = true',
       [token]
     );
 
@@ -250,7 +250,7 @@ app.post('/api/admin/auth/login', generalLimiter, async (req, res) => {
 
     // Get admin user
     const admin = await db.queryOne(
-      'SELECT * FROM admin_users WHERE username = ? AND is_active = 1',
+      'SELECT * FROM admin_users WHERE username = ? AND is_active = true',
       [username]
     );
 
@@ -376,7 +376,7 @@ app.post('/api/admin/auth/verify-mfa', generalLimiter, async (req, res) => {
 
     // Get admin user
     const admin = await db.queryOne(
-      'SELECT * FROM admin_users WHERE id = ? AND is_active = 1',
+      'SELECT * FROM admin_users WHERE id = ? AND is_active = true',
       [decoded.id]
     );
 
@@ -510,7 +510,7 @@ app.post('/api/admin/auth/setup-mfa', authenticate, async (req, res) => {
       // Enable MFA
       await db.query(
         `UPDATE admin_users SET
-          mfa_enabled = 1,
+          mfa_enabled = true,
           mfa_backup_codes = ?,
           mfa_setup_at = CURRENT_TIMESTAMP
         WHERE id = ?`,
@@ -545,7 +545,7 @@ app.post('/api/admin/auth/setup-mfa', authenticate, async (req, res) => {
       // Disable MFA
       await db.query(
         `UPDATE admin_users SET
-          mfa_enabled = 0,
+          mfa_enabled = false,
           mfa_secret = NULL,
           mfa_backup_codes = NULL
         WHERE id = ?`,
@@ -581,7 +581,7 @@ app.post('/api/admin/auth/logout', authenticate, async (req, res) => {
     if (token) {
       // Revoke session
       await db.query(
-        'UPDATE admin_sessions SET is_revoked = 1 WHERE jwt_token = ?',
+        'UPDATE admin_sessions SET is_revoked = true WHERE jwt_token = ?',
         [token]
       );
     }
@@ -621,7 +621,7 @@ app.post('/api/admin/auth/refresh', generalLimiter, async (req, res) => {
 
     // Check if session exists and is not revoked
     const session = await db.queryOne(
-      'SELECT * FROM admin_sessions WHERE refresh_token = ? AND is_revoked = 0',
+      'SELECT * FROM admin_sessions WHERE refresh_token = ? AND is_revoked = false',
       [refreshToken]
     );
 
@@ -631,7 +631,7 @@ app.post('/api/admin/auth/refresh', generalLimiter, async (req, res) => {
 
     // Get admin user
     const admin = await db.queryOne(
-      'SELECT * FROM admin_users WHERE id = ? AND is_active = 1',
+      'SELECT * FROM admin_users WHERE id = ? AND is_active = true',
       [decoded.id]
     );
 

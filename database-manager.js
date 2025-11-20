@@ -172,33 +172,19 @@ class DatabaseManager {
         this.db.exec(schema);
         this.saveSQLite();
       } else {
-        // PostgreSQL: Execute statements one by one
-        // Split by semicolon and filter empty statements
-        const statements = schema.split(';').filter(s => s.trim().length > 0);
-
-        for (const stmt of statements) {
-          const sql = stmt.trim();
-          if (!sql || sql.length === 0) continue;
-
-          // Skip comments-only statements
-          if (sql.startsWith('--') || sql.startsWith('/*')) continue;
-
-          try {
-            await this.db.query(sql);
-          } catch (err) {
-            // Gracefully handle "already exists" and "duplicate key" errors
-            const isIgnorableError =
-              err.message.includes('already exists') ||
-              err.message.includes('duplicate key value violates unique constraint');
-
-            if (isIgnorableError) {
-              console.log(`[DB] Skipping (already exists): ${err.message.split('\n')[0]}`);
-            } else {
-              console.error('[DB] Error executing statement:', sql.substring(0, 100));
-              throw err;
-            }
-          }
+        // PostgreSQL
+        const client = await this.db.connect();
+        try {
+          await client.query('BEGIN');
+          await client.query(schema);
+          await client.query('COMMIT');
+        } catch (error) {
+          await client.query('ROLLBACK');
+          throw error;
+        } finally {
+          client.release();
         }
+
       }
 
       console.log('[DB] Migrations completed successfully');

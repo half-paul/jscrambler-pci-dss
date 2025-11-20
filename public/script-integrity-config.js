@@ -59,7 +59,7 @@
      * - 'report': Only log violations (recommended for initial deployment)
      * - 'enforce': Attempt to block unauthorized scripts (use after testing)
      */
-    mode: 'report',
+    mode: 'enforce',
 
     /**
      * Baseline Hashes

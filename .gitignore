@@ -34,3 +34,4 @@ npm-debug.log*
 *.swp
 *.swo
 *~
+test-access-count.js

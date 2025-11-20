@@ -110,6 +110,14 @@
       // Blocked scripts tracking (for enforcement mode)
       this.blockedScripts = new Set();        // Set of blocked script hashes and URLs
 
+      // Store original DOM methods to prevent bypass attacks
+      this.originalMethods = {
+        createElement: document.createElement.bind(document),
+        appendChild: Element.prototype.appendChild,
+        insertBefore: Element.prototype.insertBefore,
+        replaceChild: Element.prototype.replaceChild
+      };
+
       // Initialize monitoring
       this.initialize();
     }
@@ -148,6 +156,11 @@
       // Set up MutationObserver for dynamically added scripts
       if (this.config.monitorDynamicScripts) {
         this.setupMutationObserver();
+      }
+
+      // Set up DOM method overrides to intercept dynamic script injection
+      if (this.config.monitorDynamicScripts) {
+        this.setupDOMMethodOverrides();
       }
 
       // Monitor iframe creation
@@ -253,6 +266,176 @@
       });
 
       this.log('MutationObserver initialized for dynamic script monitoring', 'debug');
+    }
+
+    /**
+     * Set up DOM method overrides to intercept dynamic script injection
+     * This catches scripts created via document.createElement() and inserted via
+     * appendChild(), insertBefore(), or replaceChild()
+     */
+    setupDOMMethodOverrides() {
+      const self = this;
+
+      this.log('Setting up DOM method overrides for script interception', 'debug');
+
+      // Override document.createElement to intercept script element creation
+      document.createElement = function(tagName, options) {
+        const element = self.originalMethods.createElement(tagName, options);
+
+        // If creating a script element, monitor its src attribute
+        if (tagName && tagName.toLowerCase() === 'script') {
+          self.log('🔍 Intercepted createElement("script")', 'debug');
+
+          // Store reference to original setAttribute
+          const originalSetAttribute = element.setAttribute.bind(element);
+          const originalSetSrc = Object.getOwnPropertyDescriptor(HTMLScriptElement.prototype, 'src');
+
+          // Override setAttribute to catch src attribute changes
+          element.setAttribute = function(name, value) {
+            if (name === 'src') {
+              self.log(`🔍 Script src set via setAttribute: ${value}`, 'debug');
+
+              // Check if this script should be blocked
+              if (self.shouldBlockDynamicScript(value, element)) {
+                self.log(`🚫 Blocked dynamic script via createElement: ${value}`, 'warn');
+                element.setAttribute('data-integrity-status', 'blocked');
+                element.setAttribute('data-blocked-reason', 'Blocked by integrity monitor');
+                element.type = 'blocked-by-integrity-monitor';
+                return;
+              }
+            }
+            return originalSetAttribute(name, value);
+          };
+
+          // Override src property setter
+          Object.defineProperty(element, 'src', {
+            set: function(value) {
+              self.log(`🔍 Script src set via property: ${value}`, 'debug');
+
+              if (self.shouldBlockDynamicScript(value, element)) {
+                self.log(`🚫 Blocked dynamic script via createElement (property): ${value}`, 'warn');
+                element.setAttribute('data-integrity-status', 'blocked');
+                element.setAttribute('data-blocked-reason', 'Blocked by integrity monitor');
+                element.type = 'blocked-by-integrity-monitor';
+                return;
+              }
+
+              originalSetSrc.set.call(this, value);
+            },
+            get: function() {
+              return originalSetSrc.get.call(this);
+            },
+            configurable: true
+          });
+
+          // Mark element as monitored
+          element.setAttribute('data-dynamic-script', 'true');
+        }
+
+        return element;
+      };
+
+      // Override appendChild to intercept script insertion
+      Element.prototype.appendChild = function(child) {
+        if (child && child.nodeName === 'SCRIPT') {
+          self.log('🔍 Intercepted appendChild(script)', 'debug');
+
+          const src = child.src || child.getAttribute('src');
+          const content = child.textContent;
+
+          if (self.shouldBlockDynamicScript(src || content, child)) {
+            self.log(`🚫 Blocked script via appendChild: ${src || 'inline script'}`, 'warn');
+
+            // Don't append the script
+            child.setAttribute('data-integrity-status', 'blocked');
+            child.setAttribute('data-blocked-reason', 'Blocked by integrity monitor');
+            child.type = 'blocked-by-integrity-monitor';
+
+            // Return the child without appending (still need to return for API compatibility)
+            return child;
+          }
+        }
+
+        return self.originalMethods.appendChild.call(this, child);
+      };
+
+      // Override insertBefore to intercept script insertion
+      Element.prototype.insertBefore = function(newNode, referenceNode) {
+        if (newNode && newNode.nodeName === 'SCRIPT') {
+          self.log('🔍 Intercepted insertBefore(script)', 'debug');
+
+          const src = newNode.src || newNode.getAttribute('src');
+          const content = newNode.textContent;
+
+          if (self.shouldBlockDynamicScript(src || content, newNode)) {
+            self.log(`🚫 Blocked script via insertBefore: ${src || 'inline script'}`, 'warn');
+
+            newNode.setAttribute('data-integrity-status', 'blocked');
+            newNode.setAttribute('data-blocked-reason', 'Blocked by integrity monitor');
+            newNode.type = 'blocked-by-integrity-monitor';
+
+            return newNode;
+          }
+        }
+
+        return self.originalMethods.insertBefore.call(this, newNode, referenceNode);
+      };
+
+      // Override replaceChild to intercept script replacement
+      Element.prototype.replaceChild = function(newChild, oldChild) {
+        if (newChild && newChild.nodeName === 'SCRIPT') {
+          self.log('🔍 Intercepted replaceChild(script)', 'debug');
+
+          const src = newChild.src || newChild.getAttribute('src');
+          const content = newChild.textContent;
+
+          if (self.shouldBlockDynamicScript(src || content, newChild)) {
+            self.log(`🚫 Blocked script via replaceChild: ${src || 'inline script'}`, 'warn');
+
+            newChild.setAttribute('data-integrity-status', 'blocked');
+            newChild.setAttribute('data-blocked-reason', 'Blocked by integrity monitor');
+            newChild.type = 'blocked-by-integrity-monitor';
+
+            return newChild;
+          }
+        }
+
+        return self.originalMethods.replaceChild.call(this, newChild, oldChild);
+      };
+
+      this.log('✅ DOM method overrides installed successfully', 'info');
+    }
+
+    /**
+     * Check if a dynamically created/inserted script should be blocked
+     * @param {string} srcOrContent - Script src URL or inline content
+     * @param {HTMLScriptElement} scriptElement - The script element
+     * @returns {boolean} True if script should be blocked
+     */
+    shouldBlockDynamicScript(srcOrContent, scriptElement) {
+      // Only block in enforce mode
+      if (this.config.mode !== 'enforce') {
+        return false;
+      }
+
+      // If we have a src URL, check against blocked scripts
+      if (srcOrContent && typeof srcOrContent === 'string') {
+        // Check if this script source is in the blocked list
+        if (this.blockedScripts.has(srcOrContent)) {
+          return true;
+        }
+
+        // Check if URL matches any blocked pattern
+        for (const blockedItem of this.blockedScripts) {
+          if (srcOrContent.includes(blockedItem) || blockedItem.includes(srcOrContent)) {
+            return true;
+          }
+        }
+      }
+
+      // Default: allow script (will be processed by MutationObserver)
+      // This prevents double-blocking while still allowing monitoring
+      return false;
     }
 
     /**
@@ -581,7 +764,7 @@
       }
 
       // Report to server (if configured)
-      if (this.config.serverBaseUrl && scriptInfo.violation !== 'PENDING_APPROVAL' && scriptInfo.violation !== 'NEW_SCRIPT') {
+      if (this.config.serverBaseUrl) {
         await this.reportViolationToServer(violation);
       }
 
@@ -594,11 +777,19 @@
         inventory: this.getInventorySummary()
       };
 
-      // In enforce mode, attempt to block the script
-      // But only block actual security violations, not pending approval or new scripts
+      // In enforce mode, block scripts based on violation type
+      // Block security violations and admin-rejected scripts
+      // Do NOT block pending approval or newly discovered scripts (allow time for review)
+      const blockableViolations = [
+        'HASH_MISMATCH',
+        'SRI_MISMATCH',
+        'REJECTED_BY_ADMIN',
+        'NO_BASELINE_HASH',
+        'UNAUTHORIZED_SCRIPT'
+      ];
+
       const shouldBlock = this.config.mode === 'enforce' &&
-                         scriptInfo.violation !== 'PENDING_APPROVAL' &&
-                         scriptInfo.violation !== 'NEW_SCRIPT';
+                         blockableViolations.includes(scriptInfo.violation);
 
       if (shouldBlock) {
         this.blockScript(scriptInfo);

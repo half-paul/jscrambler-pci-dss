@@ -102,6 +102,57 @@ When a new script is detected:
 6. Admin approves/rejects in admin panel
 7. Client receives status update and takes action
 
+### Script Blocking Behavior
+**In enforce mode** (`mode: 'enforce'`), scripts are blocked based on violation type:
+
+**Blocked Violations** (security threats and admin decisions):
+- `HASH_MISMATCH` - Known script has been modified
+- `SRI_MISMATCH` - Subresource Integrity attribute mismatch
+- `REJECTED_BY_ADMIN` - Admin explicitly rejected the script
+- `NO_BASELINE_HASH` - Script not in approved baseline
+- `UNAUTHORIZED_SCRIPT` - Script from unauthorized source
+
+**NOT Blocked** (allow time for review):
+- `PENDING_APPROVAL` - Awaiting admin review
+- `NEW_SCRIPT` - Newly discovered, auto-registered
+
+**In report mode** (`mode: 'report'`), no scripts are blocked - violations are only reported to the server.
+
+**Testing**:
+- Run `node test-rejected-blocking.js` to verify blocking logic
+- Open `http://localhost:3000/test-dynamic-injection.html` to test dynamic script injection blocking
+
+### Dynamic Script Injection Protection
+**DOM Method Overrides** are installed automatically to intercept dynamic script injection:
+
+**Intercepted Methods:**
+- `document.createElement('script')` - Catches script element creation
+- `Element.prototype.appendChild()` - Catches script insertion
+- `Element.prototype.insertBefore()` - Catches script insertion before reference node
+- `Element.prototype.replaceChild()` - Catches script replacement
+- `HTMLScriptElement.src` property setter - Catches src assignment
+- `HTMLScriptElement.setAttribute('src')` - Catches src via setAttribute
+
+**How It Works:**
+1. Original DOM methods are stored in `this.originalMethods` to prevent bypass
+2. Overrides intercept script creation/insertion before execution
+3. `shouldBlockDynamicScript()` checks if script is in blocked list
+4. Blocked scripts have their `type` changed to `blocked-by-integrity-monitor`
+5. Scripts are marked with `data-integrity-status="blocked"` attribute
+6. MutationObserver provides fallback detection for edge cases
+
+**Coverage:**
+- ✅ External scripts loaded via createElement
+- ✅ Inline scripts created dynamically
+- ✅ Scripts inserted via appendChild/insertBefore/replaceChild
+- ✅ Scripts with src set via property or setAttribute
+- ⚠️ Scripts in original HTML (handled by MutationObserver with race conditions)
+
+**Limitations:**
+- Overrides only affect scripts created AFTER monitor initialization
+- Attacker with early code execution could save original methods before override
+- Defense-in-depth: Combine with CSP for maximum protection
+
 ### Debug Logging
 **Debug mode is ON by default** (`debug: true` unless explicitly disabled)
 - All logs prefixed with `🔒 [SIM]` and timestamp
