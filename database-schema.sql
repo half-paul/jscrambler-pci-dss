@@ -447,6 +447,162 @@ INSERT OR IGNORE INTO admin_users (username, email, password_hash, role, api_tok
     ('admin', 'admin@example.com', '$2b$10$YV65lKzIz/IUvZmpKB9IWeBG3j/Tz3Wg022hoSyN7cKXEMreEQBlW', 'admin', 'demo-token-12345');
 
 -- ============================================================================
+-- HTTP HEADERS BASELINE TABLE (PCI DSS 11.6.1)
+-- ============================================================================
+-- Stores baseline HTTP headers for payment pages
+CREATE TABLE IF NOT EXISTS http_headers_baseline (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    page_url TEXT NOT NULL UNIQUE,           -- Page URL being monitored
+    headers_json TEXT NOT NULL,              -- JSON object of baseline headers
+
+    -- Session/Client Info
+    session_id TEXT,
+    user_agent TEXT,
+
+    -- Timestamps
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_verified DATETIME DEFAULT CURRENT_TIMESTAMP,
+
+    -- Approval
+    approved_by TEXT,
+    approved_at DATETIME
+);
+
+CREATE INDEX IF NOT EXISTS idx_headers_baseline_page ON http_headers_baseline(page_url);
+CREATE INDEX IF NOT EXISTS idx_headers_baseline_created ON http_headers_baseline(created_at);
+
+-- ============================================================================
+-- HTTP HEADER VIOLATIONS TABLE (PCI DSS 11.6.1)
+-- ============================================================================
+-- Stores detected header tampering violations
+CREATE TABLE IF NOT EXISTS header_violations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    page_url TEXT NOT NULL,
+    header_name TEXT NOT NULL,
+    violation_type TEXT NOT NULL CHECK(violation_type IN (
+        'HEADER_REMOVED',                    -- Critical header was removed
+        'HEADER_MODIFIED',                   -- Header value changed
+        'HEADER_MISSING'                     -- Expected header never present
+    )),
+
+    expected_value TEXT,                     -- Value from baseline
+    actual_value TEXT,                       -- Current value (null if removed)
+
+    severity TEXT DEFAULT 'HIGH' CHECK(severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+
+    -- Session Info
+    session_id TEXT,
+    user_agent TEXT,
+    ip_address TEXT,
+
+    -- Timestamps
+    detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Review Status
+    review_status TEXT DEFAULT 'pending' CHECK(review_status IN ('pending', 'investigating', 'resolved', 'false_positive', 'confirmed_attack')),
+    reviewed_by TEXT,
+    reviewed_at DATETIME,
+    review_notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_header_violations_page ON header_violations(page_url);
+CREATE INDEX IF NOT EXISTS idx_header_violations_detected ON header_violations(detected_at);
+CREATE INDEX IF NOT EXISTS idx_header_violations_status ON header_violations(review_status);
+CREATE INDEX IF NOT EXISTS idx_header_violations_type ON header_violations(violation_type);
+CREATE INDEX IF NOT EXISTS idx_header_violations_severity ON header_violations(severity);
+
+-- ============================================================================
+-- NETWORK VIOLATIONS TABLE (PCI DSS 11.6.1)
+-- ============================================================================
+-- Stores unauthorized network request attempts
+CREATE TABLE IF NOT EXISTS network_violations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    page_url TEXT NOT NULL,                  -- Source page
+    request_type TEXT NOT NULL CHECK(request_type IN ('fetch', 'xhr', 'beacon', 'form')),
+    destination_url TEXT NOT NULL,           -- Where data was being sent
+    destination_origin TEXT,                 -- Origin domain
+
+    severity TEXT DEFAULT 'CRITICAL' CHECK(severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+    blocked BOOLEAN DEFAULT 0,               -- Whether request was blocked
+
+    -- Session Info
+    session_id TEXT,
+    user_agent TEXT,
+    ip_address TEXT,
+
+    -- Timestamps
+    detected_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Review Status
+    review_status TEXT DEFAULT 'pending' CHECK(review_status IN ('pending', 'investigating', 'resolved', 'false_positive', 'confirmed_attack', 'whitelisted')),
+    reviewed_by TEXT,
+    reviewed_at DATETIME,
+    review_notes TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_network_violations_page ON network_violations(page_url);
+CREATE INDEX IF NOT EXISTS idx_network_violations_detected ON network_violations(detected_at);
+CREATE INDEX IF NOT EXISTS idx_network_violations_blocked ON network_violations(blocked);
+CREATE INDEX IF NOT EXISTS idx_network_violations_status ON network_violations(review_status);
+CREATE INDEX IF NOT EXISTS idx_network_violations_type ON network_violations(request_type);
+CREATE INDEX IF NOT EXISTS idx_network_violations_destination ON network_violations(destination_origin);
+
+-- ============================================================================
+-- NETWORK WHITELIST TABLE (PCI DSS 11.6.1)
+-- ============================================================================
+-- Stores whitelisted network destinations
+CREATE TABLE IF NOT EXISTS network_whitelist (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+
+    domain TEXT NOT NULL UNIQUE,             -- Domain or origin to whitelist
+    pattern_type TEXT DEFAULT 'exact' CHECK(pattern_type IN ('exact', 'regex', 'subdomain')),
+
+    -- Approval Info
+    business_justification TEXT,
+    added_by TEXT NOT NULL,
+    added_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- Status
+    is_active BOOLEAN DEFAULT 1,
+    expires_at DATETIME                      -- Optional expiration
+);
+
+CREATE INDEX IF NOT EXISTS idx_network_whitelist_domain ON network_whitelist(domain);
+CREATE INDEX IF NOT EXISTS idx_network_whitelist_active ON network_whitelist(is_active);
+
+-- ============================================================================
+-- VIEWS FOR PCI DSS 11.6.1 MONITORING
+-- ============================================================================
+
+-- View: Header Violations Summary
+CREATE VIEW IF NOT EXISTS v_header_violations_summary AS
+SELECT
+    page_url,
+    COUNT(*) as violation_count,
+    MAX(detected_at) as last_violation,
+    SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical_count,
+    SUM(CASE WHEN severity = 'HIGH' THEN 1 ELSE 0 END) as high_count,
+    SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END) as pending_review
+FROM header_violations
+GROUP BY page_url
+ORDER BY last_violation DESC;
+
+-- View: Network Violations Summary
+CREATE VIEW IF NOT EXISTS v_network_violations_summary AS
+SELECT
+    destination_origin,
+    COUNT(*) as violation_count,
+    SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END) as blocked_count,
+    MAX(detected_at) as last_violation,
+    SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END) as pending_review
+FROM network_violations
+GROUP BY destination_origin
+ORDER BY violation_count DESC;
+
+-- ============================================================================
 -- POSTGRESQL SPECIFIC MODIFICATIONS
 -- ============================================================================
 -- When migrating to PostgreSQL, make these changes:
@@ -468,4 +624,113 @@ INSERT OR IGNORE INTO admin_users (username, email, password_hash, role, api_tok
 -- INSERT INTO system_config (key, value, description)
 -- VALUES ('key', 'value', 'desc')
 -- ON CONFLICT (key) DO NOTHING;
+-- ============================================================================
+
+-- ============================================================================
+-- AUDIT TRAIL TABLE
+-- ============================================================================
+-- Comprehensive audit logging for all admin actions
+-- PCI DSS requirement for audit trail with 7-year retention
+CREATE TABLE IF NOT EXISTS audit_trail (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,  -- Use SERIAL for PostgreSQL
+
+    -- Timestamp (indexed for fast queries)
+    timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    -- User Information
+    user_id INTEGER,                        -- References admin_users(id)
+    username TEXT NOT NULL,                 -- Username for quick access
+    user_role TEXT,                         -- Role at time of action
+
+    -- Action Information
+    action_type TEXT NOT NULL CHECK(action_type IN (
+        -- Script Management
+        'script_approved', 'script_rejected', 'script_deleted', 'scripts_bulk_deleted',
+        -- Violation Management
+        'violation_reviewed', 'violation_deleted', 'violations_bulk_deleted',
+        -- Header Management
+        'header_violation_reviewed', 'header_violation_deleted', 'header_violations_bulk_deleted',
+        'header_baseline_deleted', 'header_baselines_bulk_deleted',
+        -- Network Management
+        'network_violation_reviewed', 'network_violation_deleted', 'network_violations_bulk_deleted',
+        'domain_whitelisted', 'domain_removed_from_whitelist',
+        -- User Management
+        'user_created', 'user_updated', 'user_deleted', 'user_password_changed',
+        'user_role_changed', 'user_mfa_enabled', 'user_mfa_disabled',
+        -- Authentication
+        'login_success', 'login_failed', 'logout', 'password_reset',
+        -- Settings
+        'settings_updated', 'config_changed'
+    )),
+
+    -- Entity Information (what was acted upon)
+    entity_type TEXT CHECK(entity_type IN (
+        'script', 'violation', 'header_violation', 'header_baseline',
+        'network_violation', 'network_whitelist', 'user', 'settings', 'auth'
+    )),
+    entity_id TEXT,                         -- ID of the entity (can be comma-separated for bulk)
+    entity_count INTEGER DEFAULT 1,         -- Number of entities affected (for bulk operations)
+
+    -- Action Details
+    action_description TEXT NOT NULL,       -- Human-readable description
+    action_reason TEXT,                     -- Reason provided by user (e.g., rejection reason)
+
+    -- Request Metadata
+    ip_address TEXT,                        -- Hashed IP address
+    user_agent TEXT,                        -- Browser/client info
+    request_method TEXT,                    -- HTTP method (GET, POST, DELETE, etc.)
+    request_path TEXT,                      -- API endpoint called
+
+    -- Changes (for update operations)
+    old_values TEXT,                        -- JSON of old values (for auditing changes)
+    new_values TEXT,                        -- JSON of new values
+
+    -- Result
+    success BOOLEAN DEFAULT 1,              -- Whether action succeeded
+    error_message TEXT,                     -- Error message if failed
+
+    -- Compliance
+    retention_until DATETIME,               -- When this log can be deleted (7 years for PCI DSS)
+    archived BOOLEAN DEFAULT 0              -- Whether archived to cold storage
+);
+
+-- Indexes for fast audit trail queries
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_trail(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_trail(username);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_trail(action_type);
+CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_trail(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_audit_retention ON audit_trail(retention_until);
+
+-- View for recent audit trail (last 30 days)
+CREATE VIEW IF NOT EXISTS v_audit_trail_recent AS
+SELECT
+    id,
+    timestamp,
+    username,
+    user_role,
+    action_type,
+    entity_type,
+    entity_id,
+    entity_count,
+    action_description,
+    action_reason,
+    success,
+    error_message
+FROM audit_trail
+WHERE timestamp >= datetime('now', '-30 days')
+ORDER BY timestamp DESC;
+
+-- View for failed actions (security monitoring)
+CREATE VIEW IF NOT EXISTS v_audit_trail_failures AS
+SELECT
+    id,
+    timestamp,
+    username,
+    ip_address,
+    action_type,
+    action_description,
+    error_message
+FROM audit_trail
+WHERE success = 0
+ORDER BY timestamp DESC;
 -- ============================================================================

@@ -327,11 +327,11 @@ class DatabaseManager {
     if (this.config.type === 'sqlite') {
       this.db.run('BEGIN TRANSACTION');
       return {
-        commit: () => {
+        commit: async () => {
           this.db.run('COMMIT');
           this.saveSQLite();
         },
-        rollback: () => {
+        rollback: async () => {
           this.db.run('ROLLBACK');
         }
       };
@@ -376,9 +376,15 @@ class DatabaseManager {
     );
 
     if (existing) {
-      // Script exists - update timestamps and IP (if not approved)
+      // Script exists - update timestamps, page_url (last loaded from), and IP (if not approved)
       const updateFields = ['last_seen = CURRENT_TIMESTAMP', 'last_accessed = CURRENT_TIMESTAMP', 'access_count = access_count + 1'];
       const updateParams = [];
+
+      // Always update page_url to reflect the most recent page this script was loaded from
+      if (pageUrl) {
+        updateFields.push('page_url = ?');
+        updateParams.push(pageUrl);
+      }
 
       // Only update IP if script is NOT approved
       if (existing.status !== 'approved' && existing.status !== 'auto_approved' && clientIp) {
@@ -892,6 +898,13 @@ class DatabaseManager {
       violationsDeleted: violationsDeleted.rowCount,
       auditDeleted: auditDeleted.rowCount
     };
+  }
+
+  /**
+   * Check if using PostgreSQL (which supports transactions)
+   */
+  isPostgreSQL() {
+    return this.config.type === 'postgres';
   }
 
   /**

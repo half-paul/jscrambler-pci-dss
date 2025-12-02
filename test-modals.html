@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modal Testing - Script Integrity Monitor</title>
+</head>
+<body>
+    <h1>Modal Implementation Test</h1>
+    <p>This page tests the bulk approval/rejection modal implementation in the admin panel.</p>
+
+    <h2>Test Instructions:</h2>
+    <ol>
+        <li>Open the admin panel at: <a href="http://localhost:3000/admin-panel.html" target="_blank">http://localhost:3000/admin-panel.html</a></li>
+        <li>Login with default credentials (check .env file for token)</li>
+        <li>Navigate to the "Pending Scripts" tab</li>
+        <li>Select one or more scripts using checkboxes</li>
+        <li>Click "Bulk Approve" or "Bulk Reject" buttons</li>
+        <li>Verify that:
+            <ul>
+                <li>A modal popup appears (NOT an alert/prompt/confirm)</li>
+                <li>The modal contains form fields for business justification, purpose, etc.</li>
+                <li>Submitting the modal sends the request to the server</li>
+                <li>Success/error notifications appear in top-right corner (NOT alerts)</li>
+                <li>The modal closes after successful submission</li>
+            </ul>
+        </li>
+    </ol>
+
+    <h2>Expected Behavior:</h2>
+    <ul>
+        <li><strong>✅ Bulk Approval Modal:</strong> Should appear with fields for business justification, script purpose, script owner, risk level, and notes</li>
+        <li><strong>✅ Bulk Rejection Modal:</strong> Should appear with fields for rejection reason, risk level, and notes</li>
+        <li><strong>✅ Notifications:</strong> Should slide in from the right side with appropriate colors (green=success, red=error, yellow=warning)</li>
+        <li><strong>❌ NO alerts/prompts/confirms:</strong> All user interactions should be through modals and notifications</li>
+    </ul>
+
+    <h2>Implementation Summary:</h2>
+    <p>The following changes were made to <code>public/admin-panel.html</code>:</p>
+    <ol>
+        <li>Added <strong>Bulk Approval Modal</strong> HTML structure with form fields</li>
+        <li>Added <strong>Bulk Rejection Modal</strong> HTML structure with form fields</li>
+        <li>Updated <code>bulkApprove()</code> function to open modal instead of using prompts</li>
+        <li>Updated <code>bulkReject()</code> function to open modal instead of using prompts</li>
+        <li>Added <code>showNotification()</code> function for toast-style notifications</li>
+        <li>Added CSS animations (slideIn/slideOut) for smooth notification transitions</li>
+        <li>Added notification container to display messages in top-right corner</li>
+    </ol>
+
+    <h2>Files Modified:</h2>
+    <ul>
+        <li><code>public/admin-panel.html</code> - Added modals, updated functions, added notification system</li>
+    </ul>
+
+    <hr>
+    <p><em>After testing, you can delete this file.</em></p>
+</body>
+</html>

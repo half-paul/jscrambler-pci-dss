@@ -32,7 +32,8 @@ Production-ready PCI DSS v4.0 Requirement 6.4.3 compliance solution with automat
 - **Pending approval queue** with script details
 - **Violation monitoring** and investigation tools
 - **Search and filter** capabilities
-- **Bulk approval/rejection** operations
+- **Bulk approval/rejection** operations with multi-select checkboxes (NEW)
+- **Select all/none** functionality for efficient batch processing (NEW)
 - **Audit log viewing** per script
 
 ## Quick Start
@@ -211,6 +212,8 @@ jscrambler/
 | GET | `/api/admin/scripts/pending` | Get pending approvals |
 | POST | `/api/admin/scripts/:id/approve` | Approve a script |
 | POST | `/api/admin/scripts/:id/reject` | Reject a script |
+| POST | `/api/admin/scripts/bulk-approve` | Bulk approve multiple scripts (NEW) |
+| POST | `/api/admin/scripts/bulk-reject` | Bulk reject multiple scripts (NEW) |
 | GET | `/api/admin/violations` | Get violations |
 | GET | `/api/admin/scripts/search` | Search scripts |
 | POST | `/api/admin/violations/:id/review` | Update violation review |
@@ -371,6 +374,90 @@ This solution addresses PCI DSS v4.0 Requirement 6.4.3:
 - **CORS**: Configurable cross-origin policies
 - **Audit Trail**: Complete logging of all approval decisions
 - **Encryption**: HTTPS recommended for production
+
+## Using Bulk Operations
+
+The admin panel supports bulk approval and rejection of scripts for efficient workflow management.
+
+### How to Use Bulk Operations
+
+1. **Navigate to Pending Approvals**:
+   - Log in to admin panel: http://localhost:3000/admin-panel.html
+   - Click on "Pending Approvals" tab
+
+2. **Select Scripts**:
+   - Click individual checkboxes next to scripts
+   - Or click the header checkbox to select all
+   - Or use "Select All" / "Select None" buttons
+
+3. **Bulk Approve**:
+   - Click "Bulk Approve" button
+   - Enter business justification when prompted
+   - Enter script purpose (or use default)
+   - Enter script owner (or use default)
+   - Confirm the action
+   - Selected scripts will be approved and removed from pending list
+
+4. **Bulk Reject**:
+   - Click "Bulk Reject" button
+   - Enter rejection reason when prompted
+   - Confirm the action
+   - Selected scripts will be rejected and removed from pending list
+
+### Bulk Operations Features
+
+- **Multi-select**: Check individual scripts or use "Select All"
+- **Selection Count**: Shows how many scripts are selected
+- **Visual Feedback**: Bulk actions bar appears when scripts are selected
+- **Indeterminate State**: Header checkbox shows partial selection state
+- **Transaction Safety**: Uses database transactions for atomic updates
+- **Partial Success**: Handles cases where some scripts succeed and others fail
+- **Limit**: Maximum 100 scripts per bulk operation
+
+### API Usage
+
+Bulk approve multiple scripts:
+
+```bash
+POST /api/admin/scripts/bulk-approve
+Content-Type: application/json
+X-API-Token: your-token-here
+
+{
+  "scriptIds": [1, 2, 3],
+  "businessJustification": "Reviewed and approved",
+  "scriptPurpose": "Third-party analytics",
+  "scriptOwner": "Engineering Team",
+  "riskLevel": "low",
+  "approvalNotes": "Bulk approved after security review"
+}
+```
+
+Bulk reject multiple scripts:
+
+```bash
+POST /api/admin/scripts/bulk-reject
+Content-Type: application/json
+X-API-Token: your-token-here
+
+{
+  "scriptIds": [4, 5, 6],
+  "rejectionReason": "Unauthorized third-party scripts",
+  "notes": "Blocked per security policy"
+}
+```
+
+Response format:
+
+```json
+{
+  "success": true,
+  "message": "Successfully approved 3 out of 3 scripts",
+  "approved": 3,
+  "failed": 0,
+  "failedIds": []
+}
+```
 
 ## Development
 

@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP Header Monitor Test - PCI DSS 11.6.1</title>
+
+    <!-- Test Page Navigation -->
+    <script src="test-navigation.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #2c3e50;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        header {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 { color: #2c3e50; margin-bottom: 5px; }
+        .subtitle { color: #7f8c8d; font-size: 14px; }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h2 { color: #2c3e50; margin-bottom: 15px; font-size: 18px; }
+        button {
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover { background: #2980b9; }
+        button.success { background: #27ae60; }
+        button.success:hover { background: #229954; }
+        button.danger { background: #e74c3c; }
+        button.danger:hover { background: #c0392b; }
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        th, td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #ecf0f1;
+        }
+        th { background: #f8f9fa; font-weight: 600; }
+        code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .log .info { color: #4fc3f7; }
+        .log .warn { color: #ffb74d; }
+        .log .error { color: #ef5350; }
+        .log .success { color: #81c784; }
+    </style>
+
+    <!-- Load configuration FIRST -->
+    <script src="script-integrity-config.js"></script>
+
+    <!-- Load HTTP Header Monitor -->
+    <script src="http-header-monitor.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>HTTP Header Monitor Test</h1>
+            <p class="subtitle">PCI DSS v4.0.1 Requirement 11.6.1 - HTTP Header Tampering Detection</p>
+        </header>
+
+        <div class="card">
+            <h2>Monitor Status</h2>
+            <div id="monitorStatus" class="status info">
+                Initializing HTTP Header Monitor...
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Current Headers</h2>
+            <p style="color: #7f8c8d; margin-bottom: 10px;">
+                These are the HTTP response headers detected for this page:
+            </p>
+            <table id="headersTable">
+                <thead>
+                    <tr>
+                        <th>Header Name</th>
+                        <th>Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td colspan="2">Loading...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Actions</h2>
+            <button onclick="checkHeaders()">Check Headers Now</button>
+            <button onclick="getStatus()" class="success">Get Monitor Status</button>
+            <button onclick="getViolations()">View Violations</button>
+            <button onclick="clearLog()" class="danger">Clear Log</button>
+        </div>
+
+        <div class="card">
+            <h2>Console Log</h2>
+            <div id="log" class="log">Waiting for monitor initialization...\n</div>
+        </div>
+
+        <div class="card">
+            <h2>How It Works</h2>
+            <p style="margin-bottom: 15px;">
+                The HTTP Header Monitor captures HTTP response headers when the page loads and establishes a baseline.
+                It then periodically checks for changes to critical security headers.
+            </p>
+            <h3 style="font-size: 14px; margin-bottom: 10px;">Critical Headers Monitored:</h3>
+            <ul style="margin-left: 20px; color: #555;">
+                <li><code>content-security-policy</code> - Prevents XSS and injection attacks</li>
+                <li><code>x-frame-options</code> - Prevents clickjacking</li>
+                <li><code>x-content-type-options</code> - Prevents MIME sniffing</li>
+                <li><code>strict-transport-security</code> - Enforces HTTPS</li>
+                <li><code>referrer-policy</code> - Controls referrer information</li>
+                <li><code>permissions-policy</code> - Controls browser features</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        const logEl = document.getElementById('log');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = {
+                info: '[INFO]',
+                warn: '[WARN]',
+                error: '[ERROR]',
+                success: '[OK]'
+            }[type] || '[LOG]';
+
+            logEl.innerHTML += `<span class="${type}">${timestamp} ${prefix}</span> ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function clearLog() {
+            logEl.innerHTML = '';
+            log('Log cleared', 'info');
+        }
+
+        // Wait for monitor to initialize
+        function waitForMonitor() {
+            return new Promise((resolve) => {
+                const check = () => {
+                    if (window.__HTTP_HEADER_MONITOR_INSTANCE__) {
+                        resolve(window.__HTTP_HEADER_MONITOR_INSTANCE__);
+                    } else if (window.HTTPHeaderMonitor) {
+                        // Create instance if not auto-initialized
+                        const config = window.HTTP_HEADER_MONITOR_CONFIG || {
+                            serverBaseUrl: window.location.origin,
+                            debug: true
+                        };
+                        const monitor = new HTTPHeaderMonitor(config);
+                        window.__HTTP_HEADER_MONITOR_INSTANCE__ = monitor;
+                        resolve(monitor);
+                    } else {
+                        setTimeout(check, 100);
+                    }
+                };
+                check();
+            });
+        }
+
+        async function initPage() {
+            try {
+                log('Waiting for HTTP Header Monitor to initialize...', 'info');
+
+                const monitor = await waitForMonitor();
+
+                // Wait a bit for initial header capture
+                await new Promise(r => setTimeout(r, 500));
+
+                const status = monitor.getStatus();
+
+                document.getElementById('monitorStatus').className = 'status success';
+                document.getElementById('monitorStatus').innerHTML = `
+                    <strong>Monitor Active</strong><br>
+                    Session ID: ${status.sessionId}<br>
+                    Baseline Headers: ${status.baselineHeaderCount}<br>
+                    Current Headers: ${status.currentHeaderCount}<br>
+                    Violations: ${status.violationCount}
+                `;
+
+                log(`Monitor initialized successfully`, 'success');
+                log(`Session ID: ${status.sessionId}`, 'info');
+                log(`Baseline headers captured: ${status.baselineHeaderCount}`, 'info');
+
+                // Display headers
+                displayHeaders(monitor);
+
+            } catch (error) {
+                log(`Initialization error: ${error.message}`, 'error');
+                document.getElementById('monitorStatus').className = 'status error';
+                document.getElementById('monitorStatus').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function displayHeaders(monitor) {
+            const headers = monitor.getCurrentHeaders();
+            const tbody = document.querySelector('#headersTable tbody');
+
+            if (Object.keys(headers).length === 0) {
+                tbody.innerHTML = '<tr><td colspan="2">No headers captured yet</td></tr>';
+                return;
+            }
+
+            // Sort headers alphabetically
+            const sortedHeaders = Object.entries(headers).sort((a, b) => a[0].localeCompare(b[0]));
+
+            tbody.innerHTML = sortedHeaders.map(([name, value]) => `
+                <tr>
+                    <td><code>${escapeHtml(name)}</code></td>
+                    <td style="word-break: break-all; font-size: 12px;">${escapeHtml(value)}</td>
+                </tr>
+            `).join('');
+
+            log(`Displayed ${sortedHeaders.length} headers`, 'info');
+        }
+
+        function escapeHtml(text) {
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        }
+
+        async function checkHeaders() {
+            log('Manually triggering header check...', 'info');
+
+            const monitor = window.__HTTP_HEADER_MONITOR_INSTANCE__;
+            if (!monitor) {
+                log('Monitor not initialized', 'error');
+                return;
+            }
+
+            try {
+                await monitor.checkHeaders();
+                log('Header check completed', 'success');
+
+                const violations = monitor.getViolations();
+                if (violations.length > 0) {
+                    log(`Found ${violations.length} violation(s)!`, 'warn');
+                } else {
+                    log('No violations detected', 'success');
+                }
+
+                displayHeaders(monitor);
+            } catch (error) {
+                log(`Check failed: ${error.message}`, 'error');
+            }
+        }
+
+        function getStatus() {
+            const monitor = window.__HTTP_HEADER_MONITOR_INSTANCE__;
+            if (!monitor) {
+                log('Monitor not initialized', 'error');
+                return;
+            }
+
+            const status = monitor.getStatus();
+            log('--- Monitor Status ---', 'info');
+            log(`Monitoring: ${status.monitoring}`, 'info');
+            log(`Baseline Headers: ${status.baselineHeaderCount}`, 'info');
+            log(`Current Headers: ${status.currentHeaderCount}`, 'info');
+            log(`Violations: ${status.violationCount}`, 'info');
+            log(`Session: ${status.sessionId}`, 'info');
+        }
+
+        function getViolations() {
+            const monitor = window.__HTTP_HEADER_MONITOR_INSTANCE__;
+            if (!monitor) {
+                log('Monitor not initialized', 'error');
+                return;
+            }
+
+            const violations = monitor.getViolations();
+
+            if (violations.length === 0) {
+                log('No violations detected', 'success');
+                return;
+            }
+
+            log(`--- ${violations.length} Violation(s) ---`, 'warn');
+            violations.forEach((v, i) => {
+                log(`[${i + 1}] ${v.type}: ${v.headerName}`, 'warn');
+                log(`    Expected: ${v.expectedValue || '(none)'}`, 'info');
+                log(`    Actual: ${v.actualValue || '(none)'}`, 'info');
+            });
+        }
+
+        // Initialize on load
+        initPage();
+    </script>
+</body>
+</html>

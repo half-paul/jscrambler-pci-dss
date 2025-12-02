@@ -20,3 +20,6 @@ document.addEventListener("DOMContentLoaded", () => {
   console.log("DOM fully loaded. Rendering button...");
   renderAlertButton();
 });
+
+
+console.log('Full Report:test');

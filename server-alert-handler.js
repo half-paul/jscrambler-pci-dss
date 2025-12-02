@@ -233,6 +233,94 @@ function requireRole(...roles) {
 }
 
 // ============================================================================
+// AUDIT TRAIL LOGGING
+// ============================================================================
+
+/**
+ * Log an action to the audit trail
+ * @param {Object} options - Audit log options
+ * @param {Object} options.req - Express request object (for IP, user-agent, etc.)
+ * @param {Object} options.admin - Admin user object (from req.admin)
+ * @param {string} options.actionType - Type of action (must match CHECK constraint in schema)
+ * @param {string} options.entityType - Type of entity acted upon
+ * @param {string|string[]} options.entityId - ID(s) of entity (can be array for bulk)
+ * @param {string} options.actionDescription - Human-readable description
+ * @param {string} [options.actionReason] - Optional reason provided by user
+ * @param {Object} [options.oldValues] - Old values (for updates)
+ * @param {Object} [options.newValues] - New values (for updates)
+ * @param {boolean} [options.success=true] - Whether action succeeded
+ * @param {string} [options.errorMessage] - Error message if failed
+ */
+async function logAudit(options) {
+  try {
+    const {
+      req,
+      admin,
+      actionType,
+      entityType,
+      entityId,
+      actionDescription,
+      actionReason,
+      oldValues,
+      newValues,
+      success = true,
+      errorMessage
+    } = options;
+
+    // Handle bulk entity IDs
+    const entityIdStr = Array.isArray(entityId) ? entityId.join(',') : String(entityId || '');
+    const entityCount = Array.isArray(entityId) ? entityId.length : 1;
+
+    // Hash IP address for privacy
+    const ipAddress = req?.ip || req?.connection?.remoteAddress || '';
+    const hashedIp = ipAddress ? crypto.createHash('sha256')
+      .update(ipAddress + (process.env.IP_SALT || 'default-salt'))
+      .digest('hex').substring(0, 64) : null;
+
+    // Calculate retention date (12 months retention policy)
+    const retentionDate = new Date();
+    retentionDate.setMonth(retentionDate.getMonth() + 12);
+
+    await db.query(
+      `INSERT INTO audit_trail (
+        timestamp, user_id, username, user_role,
+        action_type, entity_type, entity_id, entity_count,
+        action_description, action_reason,
+        ip_address, user_agent, request_method, request_path,
+        old_values, new_values,
+        success, error_message, retention_until
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        new Date().toISOString(),
+        admin?.id || null,
+        admin?.username || 'system',
+        admin?.role || null,
+        actionType,
+        entityType,
+        entityIdStr,
+        entityCount,
+        actionDescription,
+        actionReason || null,
+        hashedIp,
+        req?.headers['user-agent'] || null,
+        req?.method || null,
+        req?.path || null,
+        oldValues ? JSON.stringify(oldValues) : null,
+        newValues ? JSON.stringify(newValues) : null,
+        success ? 1 : 0,
+        errorMessage || null,
+        retentionDate.toISOString()
+      ]
+    );
+
+    console.log(`[Audit] ${actionType} by ${admin?.username || 'system'}: ${actionDescription}`);
+  } catch (error) {
+    // Don't fail the main operation if audit logging fails
+    console.error('[Audit] Failed to log audit trail:', error.message);
+  }
+}
+
+// ============================================================================
 // AUTHENTICATION ENDPOINTS (MFA)
 // ============================================================================
 
@@ -881,6 +969,1027 @@ app.post('/api/scripts/violation', violationLimiter, async (req, res) => {
 });
 
 // ============================================================================
+// PCI DSS 11.6.1 - HTTP HEADER MONITORING ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/headers/register
+ * Register baseline headers for a page
+ */
+app.post('/api/headers/register', generalLimiter, async (req, res) => {
+  try {
+    const { pageUrl, headers, sessionId, userAgent } = req.body;
+
+    if (!pageUrl || !headers) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['pageUrl', 'headers']
+      });
+    }
+
+    // Check if baseline already exists
+    const existing = await db.queryOne(
+      'SELECT id FROM http_headers_baseline WHERE page_url = ?',
+      [pageUrl]
+    );
+
+    if (existing) {
+      // Update existing baseline
+      await db.query(
+        `UPDATE http_headers_baseline SET
+          headers_json = ?,
+          session_id = ?,
+          user_agent = ?,
+          last_verified = CURRENT_TIMESTAMP
+        WHERE page_url = ?`,
+        [JSON.stringify(headers), sessionId, userAgent, pageUrl]
+      );
+      console.log(`[Headers] Updated baseline for: ${pageUrl}`);
+    } else {
+      // Create new baseline
+      await db.query(
+        `INSERT INTO http_headers_baseline (page_url, headers_json, session_id, user_agent)
+         VALUES (?, ?, ?, ?)`,
+        [pageUrl, JSON.stringify(headers), sessionId, userAgent]
+      );
+      console.log(`[Headers] Created baseline for: ${pageUrl}`);
+    }
+
+    res.json({ success: true, message: 'Headers baseline registered' });
+
+  } catch (error) {
+    console.error('[Headers] Register error:', error.message);
+    res.status(500).json({ error: 'Failed to register headers' });
+  }
+});
+
+/**
+ * GET /api/headers/baseline/:pageUrl
+ * Get baseline headers for a page
+ */
+app.get('/api/headers/baseline/:pageUrl', generalLimiter, async (req, res) => {
+  try {
+    const pageUrl = decodeURIComponent(req.params.pageUrl);
+
+    const baseline = await db.queryOne(
+      'SELECT headers_json, last_verified FROM http_headers_baseline WHERE page_url = ?',
+      [pageUrl]
+    );
+
+    if (baseline) {
+      res.json({
+        success: true,
+        headers: JSON.parse(baseline.headers_json),
+        lastVerified: baseline.last_verified
+      });
+    } else {
+      res.status(404).json({ error: 'No baseline found for this page' });
+    }
+
+  } catch (error) {
+    console.error('[Headers] Baseline fetch error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch baseline' });
+  }
+});
+
+/**
+ * POST /api/headers/violation
+ * Report a header tampering violation
+ */
+app.post('/api/headers/violation', violationLimiter, async (req, res) => {
+  try {
+    const { pageUrl, violation, sessionId, userAgent } = req.body;
+
+    if (!pageUrl || !violation) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['pageUrl', 'violation']
+      });
+    }
+
+    // Hash IP for privacy
+    const ipAddress = hashIpAddress(req.ip);
+
+    // Check if a similar violation already exists (same page, header, type)
+    // Include resolved/false_positive to prevent re-creating known violations
+    const existing = await db.queryOne(
+      `SELECT id, detected_at, review_status FROM header_violations
+       WHERE page_url = ?
+       AND header_name = ?
+       AND violation_type = ?
+       AND review_status IN ('pending', 'false_positive', 'resolved')
+       ORDER BY detected_at DESC
+       LIMIT 1`,
+      [pageUrl, violation.headerName, violation.type]
+    );
+
+    let result;
+    let isNew = false;
+
+    if (existing) {
+      // If the violation was previously resolved/false_positive but is occurring again,
+      // reset it to pending and notify admin
+      const shouldReopen = existing.review_status !== 'pending';
+
+      await db.query(
+        `UPDATE header_violations SET
+          expected_value = ?,
+          actual_value = ?,
+          severity = ?,
+          detected_at = CURRENT_TIMESTAMP,
+          session_id = ?,
+          user_agent = ?,
+          ip_address = ?,
+          review_status = ?
+        WHERE id = ?`,
+        [
+          violation.expectedValue,
+          violation.actualValue,
+          violation.severity || 'HIGH',
+          sessionId,
+          userAgent,
+          ipAddress,
+          shouldReopen ? 'pending' : existing.review_status,
+          existing.id
+        ]
+      );
+
+      result = { lastID: existing.id, insertId: existing.id };
+
+      if (shouldReopen) {
+        console.log(`[Headers] REOPENED ${violation.severity} violation: ${violation.headerName} on ${pageUrl} (was: ${existing.review_status}, ID: ${existing.id})`);
+
+        // Send alert for reopened violations
+        await queueNotification({
+          type: 'email',
+          subject: `ALERT: Previously ${existing.review_status.toUpperCase()} Violation Recurring`,
+          message: `A header violation that was marked as "${existing.review_status}" is occurring again:\n\nPage: ${pageUrl}\nHeader: ${violation.headerName}\nType: ${violation.type}\nSeverity: ${violation.severity}\n\nThis may indicate:\n- The issue was not properly fixed\n- A new attack is underway\n- Configuration changed\n\nPlease review immediately.`,
+          priority: 'high'
+        });
+      } else {
+        console.log(`[Headers] Updated existing ${violation.severity} violation: ${violation.headerName} on ${pageUrl} (ID: ${existing.id})`);
+      }
+    } else {
+      // Insert new violation
+      result = await db.query(
+        `INSERT INTO header_violations (
+          page_url, header_name, violation_type, expected_value, actual_value,
+          severity, session_id, user_agent, ip_address
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          pageUrl,
+          violation.headerName,
+          violation.type,
+          violation.expectedValue,
+          violation.actualValue,
+          violation.severity || 'HIGH',
+          sessionId,
+          userAgent,
+          ipAddress
+        ]
+      );
+
+      isNew = true;
+      console.log(`[Headers] New ${violation.severity} violation: ${violation.headerName} on ${pageUrl}`);
+
+      // Queue alert only for NEW critical violations (not updates)
+      if (violation.severity === 'CRITICAL') {
+        await queueNotification({
+          type: 'email',
+          subject: 'CRITICAL Header Tampering Detected',
+          message: `Critical header violation detected:\n\nPage: ${pageUrl}\nHeader: ${violation.headerName}\nType: ${violation.type}\nExpected: ${violation.expectedValue}\nActual: ${violation.actualValue}`,
+          priority: 'critical'
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      violationId: result.lastID || result.insertId,
+      isNew: isNew,
+      message: isNew ? 'New violation recorded' : 'Existing violation updated'
+    });
+
+  } catch (error) {
+    console.error('[Headers] Violation report error:', error.message);
+    res.status(500).json({ error: 'Failed to report violation' });
+  }
+});
+
+// ============================================================================
+// PCI DSS 11.6.1 - NETWORK REQUEST MONITORING ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/network/violation
+ * Report an unauthorized network request
+ */
+app.post('/api/network/violation', violationLimiter, async (req, res) => {
+  try {
+    const { violation, sessionId, userAgent } = req.body;
+
+    if (!violation || !violation.destinationUrl) {
+      return res.status(400).json({
+        error: 'Missing required fields',
+        required: ['violation.destinationUrl']
+      });
+    }
+
+    // Hash IP for privacy
+    const ipAddress = hashIpAddress(req.ip);
+
+    // Check if a similar violation already exists (same page, destination, request type)
+    // Include resolved/false_positive to prevent re-creating known violations
+    const existing = await db.queryOne(
+      `SELECT id, detected_at, review_status FROM network_violations
+       WHERE page_url = ?
+       AND destination_origin = ?
+       AND request_type = ?
+       AND review_status IN ('pending', 'false_positive', 'resolved', 'whitelisted')
+       ORDER BY detected_at DESC
+       LIMIT 1`,
+      [violation.sourceUrl, violation.destinationOrigin, violation.requestType]
+    );
+
+    let result;
+    let isNew = false;
+
+    if (existing) {
+      // If the violation was previously resolved/false_positive/whitelisted but is occurring again,
+      // reset it to pending and notify admin
+      const shouldReopen = existing.review_status !== 'pending';
+
+      await db.query(
+        `UPDATE network_violations SET
+          destination_url = ?,
+          severity = ?,
+          blocked = ?,
+          detected_at = CURRENT_TIMESTAMP,
+          session_id = ?,
+          user_agent = ?,
+          ip_address = ?,
+          review_status = ?
+        WHERE id = ?`,
+        [
+          violation.destinationUrl,
+          violation.severity || 'CRITICAL',
+          violation.blocked ? 1 : 0,
+          sessionId,
+          userAgent,
+          ipAddress,
+          shouldReopen ? 'pending' : existing.review_status,
+          existing.id
+        ]
+      );
+
+      result = { lastID: existing.id, insertId: existing.id };
+
+      if (shouldReopen) {
+        console.log(`[Network] REOPENED violation: ${violation.requestType} to ${violation.destinationOrigin} (was: ${existing.review_status}, ID: ${existing.id})`);
+
+        // Send alert for reopened violations (especially if it was whitelisted!)
+        await queueNotification({
+          type: 'email',
+          subject: `ALERT: Previously ${existing.review_status.toUpperCase()} Network Violation Recurring`,
+          message: `A network violation that was marked as "${existing.review_status}" is occurring again:\n\nSource: ${violation.sourceUrl}\nDestination: ${violation.destinationOrigin}\nType: ${violation.requestType}\nBlocked: ${violation.blocked ? 'YES' : 'NO'}\n\nThis may indicate:\n- The issue was not properly fixed\n- Whitelist needs review\n- A new attack is underway\n\nPlease investigate immediately.`,
+          priority: existing.review_status === 'whitelisted' ? 'critical' : 'high'
+        });
+      } else {
+        console.log(`[Network] Updated existing violation: ${violation.requestType} to ${violation.destinationOrigin} (ID: ${existing.id})`);
+      }
+    } else {
+      // Insert new violation
+      result = await db.query(
+        `INSERT INTO network_violations (
+          page_url, request_type, destination_url, destination_origin,
+          severity, blocked, session_id, user_agent, ip_address
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          violation.sourceUrl,
+          violation.requestType,
+          violation.destinationUrl,
+          violation.destinationOrigin,
+          violation.severity || 'CRITICAL',
+          violation.blocked ? 1 : 0,
+          sessionId,
+          userAgent,
+          ipAddress
+        ]
+      );
+
+      isNew = true;
+      console.log(`[Network] New violation: ${violation.blocked ? 'BLOCKED' : 'Reported'} ${violation.requestType} to: ${violation.destinationOrigin}`);
+
+      // Queue alert only for NEW blocked requests (not updates)
+      if (violation.blocked) {
+        await queueNotification({
+          type: 'email',
+          subject: 'Blocked Data Exfiltration Attempt',
+          message: `Unauthorized network request blocked:\n\nSource: ${violation.sourceUrl}\nDestination: ${violation.destinationUrl}\nType: ${violation.requestType}`,
+          priority: 'critical'
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      violationId: result.lastID || result.insertId,
+      isNew: isNew,
+      message: isNew ? 'New violation recorded' : 'Existing violation updated'
+    });
+
+  } catch (error) {
+    console.error('[Network] Violation report error:', error.message);
+    res.status(500).json({ error: 'Failed to report violation' });
+  }
+});
+
+/**
+ * GET /api/network/whitelist
+ * Get whitelisted domains (for client-side reference)
+ */
+app.get('/api/network/whitelist', generalLimiter, async (req, res) => {
+  try {
+    const whitelist = await db.query(
+      `SELECT domain, pattern_type FROM network_whitelist
+       WHERE is_active = 1 AND (expires_at IS NULL OR expires_at > CURRENT_TIMESTAMP)`
+    );
+
+    res.json({
+      success: true,
+      domains: whitelist.map(w => ({
+        domain: w.domain,
+        patternType: w.pattern_type
+      }))
+    });
+
+  } catch (error) {
+    console.error('[Network] Whitelist fetch error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch whitelist' });
+  }
+});
+
+// ============================================================================
+// PCI DSS 11.6.1 - ADMIN ENDPOINTS FOR HEADER/NETWORK MONITORING
+// ============================================================================
+
+/**
+ * GET /api/admin/headers/violations
+ * Get header violations for admin panel
+ */
+app.get('/api/admin/headers/violations', authenticate, async (req, res) => {
+  try {
+    const { status, limit = 100 } = req.query;
+
+    let query = `SELECT * FROM header_violations`;
+    const params = [];
+
+    if (status) {
+      query += ' WHERE review_status = ?';
+      params.push(status);
+    }
+
+    query += ' ORDER BY detected_at DESC LIMIT ?';
+    params.push(parseInt(limit));
+
+    const violations = await db.query(query, params);
+
+    res.json({
+      success: true,
+      data: violations,
+      count: violations.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Header violations fetch error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch header violations' });
+  }
+});
+
+/**
+ * GET /api/admin/headers/baselines
+ * Get all header baselines
+ */
+app.get('/api/admin/headers/baselines', authenticate, async (req, res) => {
+  try {
+    const baselines = await db.query(
+      'SELECT * FROM http_headers_baseline ORDER BY created_at DESC'
+    );
+
+    res.json({
+      success: true,
+      data: baselines.map(b => ({
+        ...b,
+        headers: JSON.parse(b.headers_json)
+      })),
+      count: baselines.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Baselines fetch error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch baselines' });
+  }
+});
+
+/**
+ * POST /api/admin/headers/violations/:id/review
+ * Review a header violation
+ */
+app.post('/api/admin/headers/violations/:id/review', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    await db.query(
+      `UPDATE header_violations SET
+        review_status = ?,
+        reviewed_by = ?,
+        reviewed_at = CURRENT_TIMESTAMP,
+        review_notes = ?
+      WHERE id = ?`,
+      [status, req.admin.username, notes, id]
+    );
+
+    console.log(`[Admin] Header violation ${id} reviewed by ${req.admin.username}: ${status}`);
+
+    res.json({ success: true, message: 'Violation reviewed' });
+
+  } catch (error) {
+    console.error('[Admin] Header review error:', error.message);
+    res.status(500).json({ error: 'Failed to review violation' });
+  }
+});
+
+/**
+ * GET /api/admin/network/violations
+ * Get network violations for admin panel
+ */
+app.get('/api/admin/network/violations', authenticate, async (req, res) => {
+  try {
+    const { status, blocked, limit = 100 } = req.query;
+
+    let query = 'SELECT * FROM network_violations WHERE 1=1';
+    const params = [];
+
+    if (status) {
+      query += ' AND review_status = ?';
+      params.push(status);
+    }
+
+    if (blocked !== undefined) {
+      query += ' AND blocked = ?';
+      params.push(blocked === 'true' ? 1 : 0);
+    }
+
+    query += ' ORDER BY detected_at DESC LIMIT ?';
+    params.push(parseInt(limit));
+
+    const violations = await db.query(query, params);
+
+    res.json({
+      success: true,
+      data: violations,
+      count: violations.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Network violations fetch error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch network violations' });
+  }
+});
+
+/**
+ * POST /api/admin/network/violations/:id/review
+ * Review a network violation
+ */
+app.post('/api/admin/network/violations/:id/review', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    await db.query(
+      `UPDATE network_violations SET
+        review_status = ?,
+        reviewed_by = ?,
+        reviewed_at = CURRENT_TIMESTAMP,
+        review_notes = ?
+      WHERE id = ?`,
+      [status, req.admin.username, notes, id]
+    );
+
+    console.log(`[Admin] Network violation ${id} reviewed by ${req.admin.username}: ${status}`);
+
+    res.json({ success: true, message: 'Violation reviewed' });
+
+  } catch (error) {
+    console.error('[Admin] Network review error:', error.message);
+    res.status(500).json({ error: 'Failed to review violation' });
+  }
+});
+
+/**
+ * POST /api/admin/network/violations/:id/whitelist
+ * Whitelist a domain from a network violation
+ */
+app.post('/api/admin/network/violations/:id/whitelist', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { businessJustification } = req.body;
+
+    // Get the violation to extract domain
+    const violation = await db.queryOne(
+      'SELECT destination_origin FROM network_violations WHERE id = ?',
+      [id]
+    );
+
+    if (!violation) {
+      return res.status(404).json({ error: 'Violation not found' });
+    }
+
+    // Add to whitelist
+    await db.query(
+      `INSERT OR REPLACE INTO network_whitelist (domain, business_justification, added_by)
+       VALUES (?, ?, ?)`,
+      [violation.destination_origin, businessJustification, req.admin.username]
+    );
+
+    // Update violation status
+    await db.query(
+      `UPDATE network_violations SET
+        review_status = 'whitelisted',
+        reviewed_by = ?,
+        reviewed_at = CURRENT_TIMESTAMP,
+        review_notes = ?
+      WHERE id = ?`,
+      [req.admin.username, `Whitelisted: ${businessJustification}`, id]
+    );
+
+    console.log(`[Admin] Domain whitelisted: ${violation.destination_origin} by ${req.admin.username}`);
+
+    res.json({ success: true, message: 'Domain whitelisted' });
+
+  } catch (error) {
+    console.error('[Admin] Whitelist error:', error.message);
+    res.status(500).json({ error: 'Failed to whitelist domain' });
+  }
+});
+
+/**
+ * GET /api/admin/network/whitelist
+ * Get all whitelisted domains
+ */
+app.get('/api/admin/network/whitelist', authenticate, async (req, res) => {
+  try {
+    const whitelist = await db.query(
+      'SELECT * FROM network_whitelist ORDER BY added_at DESC'
+    );
+
+    res.json({
+      success: true,
+      data: whitelist,
+      count: whitelist.length
+    });
+
+  } catch (error) {
+    console.error('[Admin] Whitelist fetch error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch whitelist' });
+  }
+});
+
+/**
+ * DELETE /api/admin/network/whitelist/:id
+ * Remove a domain from whitelist
+ */
+app.delete('/api/admin/network/whitelist/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await db.query('DELETE FROM network_whitelist WHERE id = ?', [id]);
+
+    console.log(`[Admin] Whitelist entry ${id} removed by ${req.admin.username}`);
+
+    res.json({ success: true, message: 'Domain removed from whitelist' });
+
+  } catch (error) {
+    console.error('[Admin] Whitelist delete error:', error.message);
+    res.status(500).json({ error: 'Failed to remove from whitelist' });
+  }
+});
+
+/**
+ * GET /api/admin/pci-dss/summary
+ * Get PCI DSS 11.6.1 compliance summary
+ */
+app.get('/api/admin/pci-dss/summary', authenticate, async (req, res) => {
+  try {
+    // Get script violations summary
+    const scriptStats = await db.getViolationStatistics();
+
+    // Get header violations stats
+    const headerStats = await db.queryOne(`
+      SELECT
+        COUNT(*) as total,
+        COALESCE(SUM(CASE WHEN severity = 'CRITICAL' THEN 1 ELSE 0 END), 0) as critical,
+        COALESCE(SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END), 0) as pending
+      FROM header_violations
+    `);
+
+    // Get network violations stats
+    const networkStats = await db.queryOne(`
+      SELECT
+        COUNT(*) as total,
+        COALESCE(SUM(CASE WHEN blocked = 1 THEN 1 ELSE 0 END), 0) as blocked,
+        COALESCE(SUM(CASE WHEN review_status = 'pending' THEN 1 ELSE 0 END), 0) as pending
+      FROM network_violations
+    `);
+
+    // Get header baselines count
+    const baselineCount = await db.queryOne(
+      'SELECT COUNT(*) as count FROM http_headers_baseline'
+    );
+
+    // Get whitelist count
+    const whitelistCount = await db.queryOne(
+      'SELECT COUNT(*) as count FROM network_whitelist WHERE is_active = 1'
+    );
+
+    res.json({
+      success: true,
+      summary: {
+        scriptIntegrity: scriptStats,
+        httpHeaders: {
+          baselines: baselineCount?.count || 0,
+          violations: {
+            total: headerStats?.total || 0,
+            critical: headerStats?.critical || 0,
+            pending: headerStats?.pending || 0
+          }
+        },
+        networkMonitoring: {
+          whitelistedDomains: whitelistCount?.count || 0,
+          violations: {
+            total: networkStats?.total || 0,
+            blocked: networkStats?.blocked || 0,
+            pending: networkStats?.pending || 0
+          }
+        }
+      },
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('[Admin] PCI DSS summary error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch PCI DSS summary' });
+  }
+});
+
+// ============================================================================
+// BULK DELETE ENDPOINTS
+// ============================================================================
+
+/**
+ * POST /api/admin/violations/bulk-delete
+ * Bulk delete script violations
+ */
+app.post('/api/admin/violations/bulk-delete', authenticate, async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty ids array' });
+    }
+
+    const placeholders = ids.map(() => '?').join(',');
+    await db.query(
+      `DELETE FROM violations WHERE id IN (${placeholders})`,
+      ids
+    );
+
+    // Log to audit trail
+    await logAudit({
+      req,
+      admin: req.admin,
+      actionType: 'violations_bulk_deleted',
+      entityType: 'violation',
+      entityId: ids,
+      actionDescription: `Bulk deleted ${ids.length} script violation(s)`
+    });
+
+    console.log(`[Admin] Bulk deleted ${ids.length} violations by ${req.admin.username}`);
+    res.json({ success: true, deleted: ids.length });
+  } catch (error) {
+    console.error('[Admin] Bulk delete violations error:', error.message);
+
+    // Log failure
+    await logAudit({
+      req,
+      admin: req.admin,
+      actionType: 'violations_bulk_deleted',
+      entityType: 'violation',
+      entityId: req.body.ids,
+      actionDescription: `Failed to bulk delete ${req.body.ids?.length || 0} violation(s)`,
+      success: false,
+      errorMessage: error.message
+    });
+
+    res.status(500).json({ error: 'Failed to delete violations' });
+  }
+});
+
+/**
+ * POST /api/admin/headers/violations/bulk-delete
+ * Bulk delete header violations
+ */
+app.post('/api/admin/headers/violations/bulk-delete', authenticate, async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty ids array' });
+    }
+
+    const placeholders = ids.map(() => '?').join(',');
+    await db.query(
+      `DELETE FROM header_violations WHERE id IN (${placeholders})`,
+      ids
+    );
+
+    await logAudit({
+      req,
+      admin: req.admin,
+      actionType: 'header_violations_bulk_deleted',
+      entityType: 'header_violation',
+      entityId: ids,
+      actionDescription: `Bulk deleted ${ids.length} header violation(s)`
+    });
+
+    console.log(`[Admin] Bulk deleted ${ids.length} header violations by ${req.admin.username}`);
+    res.json({ success: true, deleted: ids.length });
+  } catch (error) {
+    console.error('[Admin] Bulk delete header violations error:', error.message);
+
+    await logAudit({
+      req,
+      admin: req.admin,
+      actionType: 'header_violations_bulk_deleted',
+      entityType: 'header_violation',
+      entityId: req.body.ids,
+      actionDescription: `Failed to bulk delete ${req.body.ids?.length || 0} header violation(s)`,
+      success: false,
+      errorMessage: error.message
+    });
+
+    res.status(500).json({ error: 'Failed to delete header violations' });
+  }
+});
+
+/**
+ * POST /api/admin/headers/baselines/bulk-delete
+ * Bulk delete header baselines
+ */
+app.post('/api/admin/headers/baselines/bulk-delete', authenticate, async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty ids array' });
+    }
+
+    const placeholders = ids.map(() => '?').join(',');
+    await db.query(
+      `DELETE FROM http_headers_baseline WHERE id IN (${placeholders})`,
+      ids
+    );
+
+    await logAudit({
+      req,
+      admin: req.admin,
+      actionType: 'header_baselines_bulk_deleted',
+      entityType: 'header_baseline',
+      entityId: ids,
+      actionDescription: `Bulk deleted ${ids.length} header baseline(s)`
+    });
+
+    console.log(`[Admin] Bulk deleted ${ids.length} header baselines by ${req.admin.username}`);
+    res.json({ success: true, deleted: ids.length });
+  } catch (error) {
+    console.error('[Admin] Bulk delete header baselines error:', error.message);
+
+    await logAudit({
+      req,
+      admin: req.admin,
+      actionType: 'header_baselines_bulk_deleted',
+      entityType: 'header_baseline',
+      entityId: req.body.ids,
+      actionDescription: `Failed to bulk delete ${req.body.ids?.length || 0} header baseline(s)`,
+      success: false,
+      errorMessage: error.message
+    });
+
+    res.status(500).json({ error: 'Failed to delete header baselines' });
+  }
+});
+
+/**
+ * POST /api/admin/network/violations/bulk-delete
+ * Bulk delete network violations
+ */
+app.post('/api/admin/network/violations/bulk-delete', authenticate, async (req, res) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ error: 'Invalid or empty ids array' });
+    }
+
+    const placeholders = ids.map(() => '?').join(',');
+    await db.query(
+      `DELETE FROM network_violations WHERE id IN (${placeholders})`,
+      ids
+    );
+
+    await logAudit({
+      req,
+      admin: req.admin,
+      actionType: 'network_violations_bulk_deleted',
+      entityType: 'network_violation',
+      entityId: ids,
+      actionDescription: `Bulk deleted ${ids.length} network violation(s)`
+    });
+
+    console.log(`[Admin] Bulk deleted ${ids.length} network violations by ${req.admin.username}`);
+    res.json({ success: true, deleted: ids.length });
+  } catch (error) {
+    console.error('[Admin] Bulk delete network violations error:', error.message);
+
+    await logAudit({
+      req,
+      admin: req.admin,
+      actionType: 'network_violations_bulk_deleted',
+      entityType: 'network_violation',
+      entityId: req.body.ids,
+      actionDescription: `Failed to bulk delete ${req.body.ids?.length || 0} network violation(s)`,
+      success: false,
+      errorMessage: error.message
+    });
+
+    res.status(500).json({ error: 'Failed to delete network violations' });
+  }
+});
+
+// ============================================================================
+// AUDIT TRAIL ENDPOINTS
+// ============================================================================
+
+/**
+ * GET /api/admin/audit-trail
+ * Get audit trail logs with pagination and filtering
+ */
+app.get('/api/admin/audit-trail', authenticate, async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 50,
+      actionType,
+      username,
+      entityType,
+      startDate,
+      endDate,
+      success,
+      keyword
+    } = req.query;
+
+    const offset = (page - 1) * limit;
+    let whereConditions = [];
+    let params = [];
+
+    // Build WHERE clause based on filters
+    if (actionType) {
+      whereConditions.push('action_type = ?');
+      params.push(actionType);
+    }
+    if (username) {
+      whereConditions.push('username LIKE ?');
+      params.push(`%${username}%`);
+    }
+    if (entityType) {
+      whereConditions.push('entity_type = ?');
+      params.push(entityType);
+    }
+    if (startDate) {
+      whereConditions.push('timestamp >= ?');
+      params.push(startDate);
+    }
+    if (endDate) {
+      whereConditions.push('timestamp <= ?');
+      params.push(endDate);
+    }
+    if (success !== undefined) {
+      whereConditions.push('success = ?');
+      params.push(success === 'true' ? 1 : 0);
+    }
+    if (keyword) {
+      whereConditions.push('(action_description LIKE ? OR action_reason LIKE ? OR entity_id LIKE ?)');
+      params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+    }
+
+    const whereClause = whereConditions.length > 0
+      ? 'WHERE ' + whereConditions.join(' AND ')
+      : '';
+
+    // Get total count
+    const countResult = await db.queryOne(
+      `SELECT COUNT(*) as count FROM audit_trail ${whereClause}`,
+      params
+    );
+
+    // Get paginated results
+    const logs = await db.query(
+      `SELECT * FROM audit_trail ${whereClause}
+       ORDER BY timestamp DESC
+       LIMIT ? OFFSET ?`,
+      [...params, parseInt(limit), parseInt(offset)]
+    );
+
+    res.json({
+      logs,
+      total: countResult.count,
+      page: parseInt(page),
+      limit: parseInt(limit),
+      totalPages: Math.ceil(countResult.count / limit)
+    });
+  } catch (error) {
+    console.error('[Admin] Audit trail fetch error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch audit trail' });
+  }
+});
+
+/**
+ * GET /api/admin/audit-trail/stats
+ * Get audit trail statistics
+ */
+app.get('/api/admin/audit-trail/stats', authenticate, async (req, res) => {
+  try {
+    const stats = {
+      totalLogs: 0,
+      last24Hours: 0,
+      last7Days: 0,
+      failedActions: 0,
+      actionsByType: [],
+      topUsers: []
+    };
+
+    // Total logs
+    const total = await db.queryOne('SELECT COUNT(*) as count FROM audit_trail');
+    stats.totalLogs = total.count;
+
+    // Last 24 hours
+    const last24h = await db.queryOne(
+      "SELECT COUNT(*) as count FROM audit_trail WHERE timestamp >= datetime('now', '-1 day')"
+    );
+    stats.last24Hours = last24h.count;
+
+    // Last 7 days
+    const last7d = await db.queryOne(
+      "SELECT COUNT(*) as count FROM audit_trail WHERE timestamp >= datetime('now', '-7 days')"
+    );
+    stats.last7Days = last7d.count;
+
+    // Failed actions
+    const failed = await db.queryOne(
+      'SELECT COUNT(*) as count FROM audit_trail WHERE success = 0'
+    );
+    stats.failedActions = failed.count;
+
+    // Actions by type (top 10)
+    const byType = await db.query(
+      `SELECT action_type, COUNT(*) as count
+       FROM audit_trail
+       GROUP BY action_type
+       ORDER BY count DESC
+       LIMIT 10`
+    );
+    stats.actionsByType = byType;
+
+    // Top users (top 10)
+    const topUsers = await db.query(
+      `SELECT username, COUNT(*) as action_count
+       FROM audit_trail
+       WHERE username != 'system'
+       GROUP BY username
+       ORDER BY action_count DESC
+       LIMIT 10`
+    );
+    stats.topUsers = topUsers;
+
+    res.json(stats);
+  } catch (error) {
+    console.error('[Admin] Audit trail stats error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch audit trail statistics' });
+  }
+});
+
+// ============================================================================
 
 // ADMIN API ENDPOINTS (Protected)
 
@@ -1172,6 +2281,13 @@ app.post('/api/admin/scripts/:id/approve', authenticate, async (req, res) => {
     const { id } = req.params;
     const { businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes } = req.body;
 
+    // Get script URL before updating (needed to clean up violations)
+    const script = await db.queryOne('SELECT url FROM scripts WHERE id = ?', [id]);
+
+    if (!script) {
+      return res.status(404).json({ error: 'Script not found' });
+    }
+
     await db.query(
       `UPDATE scripts SET
         status = 'approved',
@@ -1186,9 +2302,20 @@ app.post('/api/admin/scripts/:id/approve', authenticate, async (req, res) => {
       [businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes, req.admin.username, id]
     );
 
-    console.log(`[Admin] Script ${id} approved by ${req.admin.username}`);
+    // Clean up violations for approved script
+    const violationResult = await db.query(
+      'DELETE FROM integrity_violations WHERE script_url = ?',
+      [script.url]
+    );
+    const violationsRemoved = violationResult?.changes || 0;
 
-    res.json({ success: true, message: 'Script approved successfully' });
+    console.log(`[Admin] Script ${id} approved by ${req.admin.username}${violationsRemoved > 0 ? ` (${violationsRemoved} violations cleared)` : ''}`);
+
+    res.json({
+      success: true,
+      message: 'Script approved successfully',
+      violationsCleared: violationsRemoved
+    });
 
   } catch (error) {
     console.error('[Admin] Approve error:', error.message);
@@ -1223,6 +2350,210 @@ app.post('/api/admin/scripts/:id/reject', authenticate, async (req, res) => {
   } catch (error) {
     console.error('[Admin] Reject error:', error.message);
     res.status(500).json({ error: 'Failed to reject script' });
+  }
+});
+
+/**
+ * POST /api/admin/scripts/bulk-approve
+ * Bulk approve multiple scripts
+ */
+app.post('/api/admin/scripts/bulk-approve', authenticate, async (req, res) => {
+  try {
+    const { scriptIds, businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes } = req.body;
+
+    if (!Array.isArray(scriptIds) || scriptIds.length === 0) {
+      return res.status(400).json({ error: 'scriptIds must be a non-empty array' });
+    }
+
+    if (scriptIds.length > 100) {
+      return res.status(400).json({ error: 'Cannot approve more than 100 scripts at once' });
+    }
+
+    // Validate all IDs are integers
+    const invalidIds = scriptIds.filter(id => !Number.isInteger(id) || id <= 0);
+    if (invalidIds.length > 0) {
+      return res.status(400).json({ error: 'All script IDs must be positive integers' });
+    }
+
+    // Get script URLs before updating (needed to clean up violations)
+    const scripts = await db.query(
+      `SELECT id, url FROM scripts WHERE id IN (${scriptIds.map(() => '?').join(',')})`,
+      scriptIds
+    );
+
+    const scriptUrlMap = {};
+    scripts.forEach(script => {
+      scriptUrlMap[script.id] = script.url;
+    });
+
+    // Use transactions for PostgreSQL (ensures atomicity)
+    // Skip for SQLite (single-threaded, transaction support is limited)
+    const useTransaction = db.isPostgreSQL();
+    let transaction = null;
+
+    try {
+      if (useTransaction) {
+        transaction = await db.beginTransaction();
+      }
+
+      let successCount = 0;
+      let failedIds = [];
+      const approvedUrls = [];
+
+      for (const id of scriptIds) {
+        try {
+          const result = await db.query(
+            `UPDATE scripts SET
+              status = 'approved',
+              business_justification = ?,
+              script_purpose = ?,
+              script_owner = ?,
+              risk_level = ?,
+              approval_notes = ?,
+              approved_by = ?,
+              approved_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending_approval'`,
+            [businessJustification, scriptPurpose, scriptOwner, riskLevel, approvalNotes, req.admin.username, id]
+          );
+
+          if (result.changes > 0) {
+            successCount++;
+            if (scriptUrlMap[id]) {
+              approvedUrls.push(scriptUrlMap[id]);
+            }
+          } else {
+            failedIds.push(id);
+          }
+        } catch (error) {
+          console.error(`[Admin] Failed to approve script ${id}:`, error.message);
+          failedIds.push(id);
+        }
+      }
+
+      // Clean up violations for all approved scripts
+      let totalViolationsRemoved = 0;
+      for (const url of approvedUrls) {
+        const violationResult = await db.query(
+          'DELETE FROM integrity_violations WHERE script_url = ?',
+          [url]
+        );
+        totalViolationsRemoved += violationResult?.changes || 0;
+      }
+
+      if (useTransaction && transaction) {
+        await transaction.commit();
+      }
+
+      console.log(`[Admin] Bulk approved ${successCount} scripts by ${req.admin.username}${totalViolationsRemoved > 0 ? ` (${totalViolationsRemoved} violations cleared)` : ''}`);
+
+      res.json({
+        success: true,
+        message: `Successfully approved ${successCount} out of ${scriptIds.length} scripts`,
+        approved: successCount,
+        failed: failedIds.length,
+        failedIds,
+        violationsCleared: totalViolationsRemoved
+      });
+
+    } catch (error) {
+      if (useTransaction && transaction) {
+        await transaction.rollback();
+      }
+      console.error('[Admin] Bulk approve error:', error);
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('[Admin] Bulk approve error:', error.message);
+    console.error('[Admin] Error stack:', error.stack);
+    res.status(500).json({ error: 'Failed to bulk approve scripts' });
+  }
+});
+
+/**
+ * POST /api/admin/scripts/bulk-reject
+ * Bulk reject multiple scripts
+ */
+app.post('/api/admin/scripts/bulk-reject', authenticate, async (req, res) => {
+  try {
+    const { scriptIds, rejectionReason, notes } = req.body;
+
+    if (!Array.isArray(scriptIds) || scriptIds.length === 0) {
+      return res.status(400).json({ error: 'scriptIds must be a non-empty array' });
+    }
+
+    if (scriptIds.length > 100) {
+      return res.status(400).json({ error: 'Cannot reject more than 100 scripts at once' });
+    }
+
+    // Validate all IDs are integers
+    const invalidIds = scriptIds.filter(id => !Number.isInteger(id) || id <= 0);
+    if (invalidIds.length > 0) {
+      return res.status(400).json({ error: 'All script IDs must be positive integers' });
+    }
+
+    // Use transactions for PostgreSQL (ensures atomicity)
+    // Skip for SQLite (single-threaded, transaction support is limited)
+    const useTransaction = db.isPostgreSQL();
+    let transaction = null;
+
+    try {
+      if (useTransaction) {
+        transaction = await db.beginTransaction();
+      }
+
+      let successCount = 0;
+      let failedIds = [];
+
+      for (const id of scriptIds) {
+        try {
+          const result = await db.query(
+            `UPDATE scripts SET
+              status = 'rejected',
+              rejection_reason = ?,
+              approval_notes = ?,
+              approved_by = ?,
+              approved_at = CURRENT_TIMESTAMP
+            WHERE id = ? AND status = 'pending_approval'`,
+            [rejectionReason, notes, req.admin.username, id]
+          );
+
+          if (result.changes > 0) {
+            successCount++;
+          } else {
+            failedIds.push(id);
+          }
+        } catch (error) {
+          console.error(`[Admin] Failed to reject script ${id}:`, error.message);
+          failedIds.push(id);
+        }
+      }
+
+      if (useTransaction && transaction) {
+        await transaction.commit();
+      }
+
+      console.log(`[Admin] Bulk rejected ${successCount} scripts by ${req.admin.username}`);
+
+      res.json({
+        success: true,
+        message: `Successfully rejected ${successCount} out of ${scriptIds.length} scripts`,
+        rejected: successCount,
+        failed: failedIds.length,
+        failedIds
+      });
+
+    } catch (error) {
+      if (useTransaction && transaction) {
+        await transaction.rollback();
+      }
+      console.error('[Admin] Bulk reject error:', error);
+      throw error;
+    }
+
+  } catch (error) {
+    console.error('[Admin] Bulk reject error:', error.message);
+    res.status(500).json({ error: 'Failed to bulk reject scripts' });
   }
 });
 
@@ -1286,6 +2617,118 @@ app.put('/api/admin/scripts/:id/update', authenticate, async (req, res) => {
   } catch (error) {
     console.error('[Admin] Update error:', error.message);
     res.status(500).json({ error: 'Failed to update script' });
+  }
+});
+
+/**
+ * DELETE /api/admin/scripts/:id
+ * Delete a single script from inventory
+ */
+app.delete('/api/admin/scripts/:id', authenticate, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const adminUsername = req.admin.username;
+
+    // Check if script exists
+    const script = await db.queryOne('SELECT * FROM scripts WHERE id = ?', [id]);
+
+    if (!script) {
+      return res.status(404).json({ error: 'Script not found' });
+    }
+
+    // Log the deletion in audit log before deleting (using valid action type)
+    await db.query(
+      `INSERT INTO approval_audit_log
+       (script_id, action, previous_status, new_status, performed_by, notes, performed_at)
+       VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+      [id, 'status_changed', script.status, 'deleted', adminUsername, `Script deleted from inventory: ${script.url}`]
+    );
+
+    // Delete related records first (violations don't have foreign key cascade)
+    await db.query('DELETE FROM integrity_violations WHERE script_url = ?', [script.url]);
+
+    // Delete the script (this will cascade delete audit logs via ON DELETE CASCADE)
+    await db.query('DELETE FROM scripts WHERE id = ?', [id]);
+
+    console.log(`[Admin] Script ${id} deleted by ${adminUsername}`);
+
+    res.json({
+      success: true,
+      message: 'Script deleted successfully',
+      deletedId: id
+    });
+
+  } catch (error) {
+    console.error('[Admin] Delete script error:', error.message);
+    res.status(500).json({ error: 'Failed to delete script' });
+  }
+});
+
+/**
+ * POST /api/admin/scripts/bulk-delete
+ * Delete multiple scripts from inventory
+ */
+app.post('/api/admin/scripts/bulk-delete', authenticate, async (req, res) => {
+  try {
+    const { scriptIds, deletionReason } = req.body;
+    const adminUsername = req.admin.username;
+
+    if (!scriptIds || !Array.isArray(scriptIds) || scriptIds.length === 0) {
+      return res.status(400).json({ error: 'Script IDs array is required' });
+    }
+
+    if (!deletionReason || deletionReason.trim() === '') {
+      return res.status(400).json({ error: 'Deletion reason is required' });
+    }
+
+    const deleted = [];
+    const failed = [];
+
+    for (const id of scriptIds) {
+      try {
+        // Check if script exists
+        const script = await db.queryOne('SELECT * FROM scripts WHERE id = ?', [id]);
+
+        if (!script) {
+          failed.push({ id, reason: 'Script not found' });
+          continue;
+        }
+
+        // Log the deletion in audit log before deleting (using valid action type)
+        await db.query(
+          `INSERT INTO approval_audit_log
+           (script_id, action, previous_status, new_status, performed_by, notes, performed_at)
+           VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`,
+          [id, 'status_changed', script.status, 'deleted', adminUsername, `Bulk deletion: ${deletionReason}`]
+        );
+
+        // Delete related records first (violations don't have foreign key cascade)
+        await db.query('DELETE FROM integrity_violations WHERE script_url = ?', [script.url]);
+
+        // Delete the script (this will cascade delete audit logs via ON DELETE CASCADE)
+        await db.query('DELETE FROM scripts WHERE id = ?', [id]);
+
+        deleted.push(id);
+        console.log(`[Admin] Script ${id} deleted by ${adminUsername} (bulk operation)`);
+
+      } catch (error) {
+        console.error(`[Admin] Failed to delete script ${id}:`, error.message);
+        failed.push({ id, reason: error.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      message: `Successfully deleted ${deleted.length} script${deleted.length !== 1 ? 's' : ''}`,
+      deleted: deleted.length,
+      deletedIds: deleted,
+      failed: failed.length,
+      failedIds: failed
+    });
+
+  } catch (error) {
+    console.error('[Admin] Bulk delete error:', error.message);
+    res.status(500).json({ error: 'Failed to perform bulk delete operation' });
   }
 });
 

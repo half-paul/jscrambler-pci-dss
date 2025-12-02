@@ -222,7 +222,87 @@
       version: '4.0',
       lastReviewDate: '2025-11-11',
       reviewer: 'Security Team'
+    },
+
+    // =========================================================================
+    // PCI DSS 11.6.1 - HTTP Header Monitoring Configuration
+    // =========================================================================
+    httpHeaderMonitoring: {
+      enabled: true,
+      checkInterval: 60000, // Check every 60 seconds
+
+      // Critical security headers to monitor for tampering
+      criticalHeaders: [
+        'content-security-policy',
+        'x-frame-options',
+        'x-content-type-options',
+        'strict-transport-security',
+        'referrer-policy',
+        'permissions-policy',
+        'x-xss-protection'
+      ],
+
+      // Alert configuration
+      alertOnChange: true,     // Alert when header value changes
+      alertOnMissing: true,    // Alert when expected header is missing
+      alertOnRemoved: true     // Alert when header is completely removed
+    },
+
+    // =========================================================================
+    // PCI DSS 11.6.1 - Network Request Monitoring Configuration
+    // =========================================================================
+    networkMonitoring: {
+      enabled: true,
+      mode: 'report', // 'report' or 'enforce' (enforce will block unauthorized requests)
+
+      // Whitelisted domains that are allowed to receive data
+      // Same-origin requests are always allowed automatically
+      allowedDomains: [
+        // Add your trusted domains here
+        // 'https://api.yourdomain.com',
+        // 'https://payments.yourprovider.com',
+        // /^https:\/\/.*\.stripe\.com$/,  // Regex for subdomains
+      ],
+
+      // Specific endpoint paths that are always allowed (regardless of domain)
+      allowedEndpoints: [
+        // '/api/payment/process',
+        // '/api/checkout/submit'
+      ],
+
+      // What to monitor
+      monitorFetch: true,       // Intercept fetch() calls
+      monitorXHR: true,         // Intercept XMLHttpRequest
+      monitorBeacon: true,      // Intercept navigator.sendBeacon()
+      monitorFormSubmit: true   // Monitor form submissions
     }
+  };
+
+  // =========================================================================
+  // HTTP Header Monitor Configuration (auto-generated from main config)
+  // =========================================================================
+  window.HTTP_HEADER_MONITOR_CONFIG = {
+    serverBaseUrl: window.SCRIPT_INTEGRITY_CONFIG.serverBaseUrl,
+    checkInterval: window.SCRIPT_INTEGRITY_CONFIG.httpHeaderMonitoring?.checkInterval || 60000,
+    criticalHeaders: window.SCRIPT_INTEGRITY_CONFIG.httpHeaderMonitoring?.criticalHeaders,
+    alertOnChange: window.SCRIPT_INTEGRITY_CONFIG.httpHeaderMonitoring?.alertOnChange !== false,
+    alertOnMissing: window.SCRIPT_INTEGRITY_CONFIG.httpHeaderMonitoring?.alertOnMissing !== false,
+    debug: window.SCRIPT_INTEGRITY_CONFIG.debug
+  };
+
+  // =========================================================================
+  // Network Request Monitor Configuration (auto-generated from main config)
+  // =========================================================================
+  window.NETWORK_REQUEST_MONITOR_CONFIG = {
+    serverBaseUrl: window.SCRIPT_INTEGRITY_CONFIG.serverBaseUrl,
+    mode: window.SCRIPT_INTEGRITY_CONFIG.networkMonitoring?.mode || 'report',
+    allowedDomains: window.SCRIPT_INTEGRITY_CONFIG.networkMonitoring?.allowedDomains || [],
+    allowedEndpoints: window.SCRIPT_INTEGRITY_CONFIG.networkMonitoring?.allowedEndpoints || [],
+    monitorFetch: window.SCRIPT_INTEGRITY_CONFIG.networkMonitoring?.monitorFetch !== false,
+    monitorXHR: window.SCRIPT_INTEGRITY_CONFIG.networkMonitoring?.monitorXHR !== false,
+    monitorBeacon: window.SCRIPT_INTEGRITY_CONFIG.networkMonitoring?.monitorBeacon !== false,
+    monitorFormSubmit: window.SCRIPT_INTEGRITY_CONFIG.networkMonitoring?.monitorFormSubmit !== false,
+    debug: window.SCRIPT_INTEGRITY_CONFIG.debug
   };
 
   /**

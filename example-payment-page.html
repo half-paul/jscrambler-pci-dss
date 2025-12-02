@@ -16,18 +16,16 @@
   <!-- 2. Load monitor SECOND (before any other scripts) -->
   <script src="script-integrity-monitor.js"></script>
 
+  <!-- Load HTTP Header Monitor -->
+  <script src="http-header-monitor.js"></script>
+
   <!--
     Now load other scripts - they will all be monitored
     Include SRI attributes for external scripts (best practice)
   -->
 
   <!-- Example: jQuery from CDN with SRI -->
-  <script
-    src="https://code.jquery.com/jquery-3.7.1.min.js"
-    integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs"
-    crossorigin="anonymous"></script>
-
-  <script src="script-test-block.js"></script>
+ 
 
   <style>
     body {
@@ -348,6 +346,13 @@
   -->
 
 
+   <script
+    src="https://code.jquery.com/jquery-3.7.1.min.js"
+    integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs"
+    crossorigin="anonymous"></script>
+
+  <script src="script-test-block.js"></script>
+  
 
 </body>
 </html>

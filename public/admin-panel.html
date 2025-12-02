@@ -112,6 +112,44 @@
             background: #229954;
         }
 
+        .bulk-actions {
+            display: none;
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            border: 2px solid #3498db;
+        }
+
+        .bulk-actions.active {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+
+        .bulk-actions .selection-count {
+            font-weight: 600;
+            color: #2c3e50;
+            margin-right: auto;
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+            margin: 0;
+        }
+
+        input[type="checkbox"]:checked {
+            accent-color: #3498db;
+        }
+
+        .checkbox-cell {
+            width: 40px;
+            text-align: center;
+        }
+
         .dashboard {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -345,6 +383,29 @@
             font-size: 12px;
             margin: 2px;
         }
+
+        /* Notification animations */
+        @keyframes slideIn {
+            from {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+
+        @keyframes slideOut {
+            from {
+                transform: translateX(0);
+                opacity: 1;
+            }
+            to {
+                transform: translateX(400px);
+                opacity: 0;
+            }
+        }
     </style>
 </head>
 <body>
@@ -447,8 +508,11 @@
                 <button class="tab active" onclick="showTab('inventory', this)">Script Inventory</button>
                 <button class="tab" onclick="showTab('pending', this)">Pending Approvals</button>
                 <button class="tab" onclick="showTab('violations', this)">Violations</button>
+                <button class="tab" onclick="showTab('headers', this)">HTTP Headers</button>
+                <button class="tab" onclick="showTab('network', this)">Network Monitor</button>
                 <button class="tab" onclick="showTab('security', this)">Security Settings</button>
                 <button class="tab" onclick="showTab('users', this)">User Management</button>
+                <button class="tab" onclick="showTab('audit', this)">Audit Trail</button>
             </div>
 
             <!-- Pending Approvals Tab -->
@@ -461,6 +525,48 @@
             <div id="violations" class="content-section">
                 <h2 style="margin-bottom: 20px;">Integrity Violations</h2>
                 <div id="violationsContent" class="loading">Loading...</div>
+            </div>
+
+            <!-- HTTP Headers Tab (PCI DSS 11.6.1) -->
+            <div id="headers" class="content-section">
+                <h2 style="margin-bottom: 20px;">HTTP Header Monitoring</h2>
+                <p style="color: #7f8c8d; margin-bottom: 20px;">
+                    Monitor security HTTP headers for tampering (PCI DSS 11.6.1 compliance)
+                </p>
+                <div class="tabs" style="border-bottom: 1px solid #ecf0f1; margin-bottom: 20px;">
+                    <button class="tab active" onclick="showHeaderSubTab('headerViolations', this)">Violations</button>
+                    <button class="tab" onclick="showHeaderSubTab('headerBaselines', this)">Baselines</button>
+                </div>
+                <div id="headerViolations" class="header-subtab">
+                    <div id="headerViolationsContent" class="loading">Loading...</div>
+                </div>
+                <div id="headerBaselines" class="header-subtab" style="display: none;">
+                    <div id="headerBaselinesContent" class="loading">Loading...</div>
+                </div>
+            </div>
+
+            <!-- Network Monitor Tab (PCI DSS 11.6.1) -->
+            <div id="network" class="content-section">
+                <h2 style="margin-bottom: 20px;">Network Request Monitoring</h2>
+                <p style="color: #7f8c8d; margin-bottom: 20px;">
+                    Track and block unauthorized data exfiltration attempts (PCI DSS 11.6.1 compliance)
+                </p>
+                <div class="tabs" style="border-bottom: 1px solid #ecf0f1; margin-bottom: 20px;">
+                    <button class="tab active" onclick="showNetworkSubTab('networkViolations', this)">Violations</button>
+                    <button class="tab" onclick="showNetworkSubTab('networkWhitelist', this)">Whitelist</button>
+                </div>
+                <div id="networkViolations" class="network-subtab">
+                    <div style="margin-bottom: 15px;">
+                        <label><input type="checkbox" id="showBlockedOnly" onchange="fetchNetworkViolations()"> Show blocked only</label>
+                    </div>
+                    <div id="networkViolationsContent" class="loading">Loading...</div>
+                </div>
+                <div id="networkWhitelist" class="network-subtab" style="display: none;">
+                    <div style="margin-bottom: 15px;">
+                        <button class="success" onclick="openAddWhitelistModal()">Add Domain to Whitelist</button>
+                    </div>
+                    <div id="networkWhitelistContent" class="loading">Loading...</div>
+                </div>
             </div>
 
             <!-- Inventory Tab -->
@@ -481,6 +587,13 @@
                         <option value="external">External</option>
                     </select>
                     <button onclick="searchInventory()">Search</button>
+                </div>
+                <div id="inventoryBulkActions" class="bulk-actions" style="display: none; margin-bottom: 15px;">
+                    <span id="inventorySelectedCount">0 scripts selected</span>
+                    <div>
+                        <button class="danger" onclick="bulkDeleteInventory()">Delete Selected</button>
+                        <button class="secondary" onclick="clearInventorySelection()">Clear Selection</button>
+                    </div>
                 </div>
                 <div id="inventoryContent" class="loading">Loading...</div>
             </div>
@@ -543,6 +656,78 @@
                 </div>
                 <div id="usersContent">
                     <!-- User table will be rendered here -->
+                </div>
+            </div>
+
+            <!-- Audit Trail Tab -->
+            <div id="audit" class="content-section">
+                <h2 style="margin-bottom: 20px;">Audit Trail</h2>
+
+                <!-- Statistics Cards -->
+                <div id="auditStats" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 30px;">
+                    <!-- Stats will be rendered here -->
+                </div>
+
+                <!-- Filters -->
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h3 style="margin-bottom: 15px; font-size: 16px;">Filters</h3>
+                    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-size: 13px;">Action Type</label>
+                            <select id="auditFilterActionType" style="width: 100%; padding: 8px;">
+                                <option value="">All Actions</option>
+                                <option value="script_approved">Script Approved</option>
+                                <option value="script_rejected">Script Rejected</option>
+                                <option value="script_deleted">Script Deleted</option>
+                                <option value="scripts_bulk_deleted">Scripts Bulk Deleted</option>
+                                <option value="violation_reviewed">Violation Reviewed</option>
+                                <option value="violations_bulk_deleted">Violations Bulk Deleted</option>
+                                <option value="header_violation_reviewed">Header Violation Reviewed</option>
+                                <option value="header_violations_bulk_deleted">Header Violations Bulk Deleted</option>
+                                <option value="header_baselines_bulk_deleted">Header Baselines Bulk Deleted</option>
+                                <option value="network_violation_reviewed">Network Violation Reviewed</option>
+                                <option value="network_violations_bulk_deleted">Network Violations Bulk Deleted</option>
+                                <option value="user_created">User Created</option>
+                                <option value="user_updated">User Updated</option>
+                                <option value="user_deleted">User Deleted</option>
+                                <option value="login_success">Login Success</option>
+                                <option value="login_failed">Login Failed</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-size: 13px;">Username</label>
+                            <input type="text" id="auditFilterUsername" placeholder="Search username..." style="width: 100%; padding: 8px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-size: 13px;">Start Date</label>
+                            <input type="date" id="auditFilterStartDate" style="width: 100%; padding: 8px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-size: 13px;">End Date</label>
+                            <input type="date" id="auditFilterEndDate" style="width: 100%; padding: 8px;">
+                        </div>
+                        <div>
+                            <label style="display: block; margin-bottom: 5px; font-size: 13px;">Status</label>
+                            <select id="auditFilterSuccess" style="width: 100%; padding: 8px;">
+                                <option value="">All</option>
+                                <option value="true">Success</option>
+                                <option value="false">Failed</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; align-items: flex-end;">
+                            <button onclick="applyAuditFilters()" style="width: 100%; padding: 8px;">Apply Filters</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Audit Trail Table -->
+                <div id="auditContent" class="loading">
+                    Loading audit trail...
+                </div>
+
+                <!-- Pagination -->
+                <div id="auditPagination" style="margin-top: 20px; text-align: center;">
+                    <!-- Pagination will be rendered here -->
                 </div>
             </div>
 
@@ -749,6 +934,132 @@
                 <button id="saveScriptBtn" class="success" onclick="saveScriptChanges()" style="display: none;">Save Changes</button>
                 <button id="cancelEditBtn" class="secondary" onclick="cancelEdit()" style="display: none;">Cancel</button>
                 <button id="closeDetailsBtn" class="secondary" onclick="closeScriptDetailsModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Approval Modal -->
+    <div id="bulkApprovalModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Bulk Approve Scripts</h2>
+            </div>
+            <div id="bulkApprovalError" class="error-message" style="display:none;"></div>
+            <div class="info-grid" style="margin-bottom: 20px;">
+                <div class="info-label">Scripts Selected:</div>
+                <div id="bulkApproveCount" style="font-weight: bold; color: #28a745;"></div>
+            </div>
+            <div class="form-group">
+                <label for="bulkBusinessJustification">Business Justification *</label>
+                <textarea id="bulkBusinessJustification" rows="3" required placeholder="Enter business justification for approving these scripts..."></textarea>
+            </div>
+            <div class="form-group">
+                <label for="bulkScriptPurpose">Script Purpose *</label>
+                <input type="text" id="bulkScriptPurpose" required placeholder="e.g., Third-party integration, Analytics, Payment processing">
+            </div>
+            <div class="form-group">
+                <label for="bulkScriptOwner">Script Owner</label>
+                <input type="text" id="bulkScriptOwner" placeholder="e.g., Security Team, Development Team">
+            </div>
+            <div class="form-group">
+                <label for="bulkRiskLevel">Risk Level</label>
+                <select id="bulkRiskLevel">
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="bulkApprovalNotes">Notes</label>
+                <textarea id="bulkApprovalNotes" rows="2" placeholder="Optional: Additional notes about this bulk approval..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="success" onclick="submitBulkApproval()">Approve All</button>
+                <button class="secondary" onclick="closeBulkApprovalModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Rejection Modal -->
+    <div id="bulkRejectionModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Bulk Reject Scripts</h2>
+            </div>
+            <div id="bulkRejectionError" class="error-message" style="display:none;"></div>
+            <div class="info-grid" style="margin-bottom: 20px;">
+                <div class="info-label">Scripts Selected:</div>
+                <div id="bulkRejectCount" style="font-weight: bold; color: #dc3545;"></div>
+            </div>
+            <div class="form-group">
+                <label for="bulkRejectionReason">Rejection Reason *</label>
+                <textarea id="bulkRejectionReason" rows="3" required placeholder="Enter reason for rejecting these scripts..."></textarea>
+            </div>
+            <div class="form-group">
+                <label for="bulkRejectionRiskLevel">Risk Level</label>
+                <select id="bulkRejectionRiskLevel">
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label for="bulkRejectionNotes">Notes</label>
+                <textarea id="bulkRejectionNotes" rows="2" placeholder="Optional: Additional notes about this bulk rejection..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="danger" onclick="submitBulkRejection()">Reject All</button>
+                <button class="secondary" onclick="closeBulkRejectionModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Script Confirmation Modal -->
+    <div id="deleteScriptModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Delete Script</h2>
+            </div>
+            <div id="deleteScriptError" class="error-message" style="display:none;"></div>
+            <div class="info-grid" style="margin-bottom: 20px;">
+                <div class="info-label">Script URL:</div>
+                <div id="deleteScriptUrl" style="word-break: break-all; color: #dc3545; font-weight: bold;"></div>
+                <div class="info-label">Script ID:</div>
+                <div id="deleteScriptId" style="font-weight: bold;"></div>
+            </div>
+            <div style="padding: 15px; background: #fff3cd; border-left: 4px solid #ffc107; margin-bottom: 20px;">
+                <strong>⚠️ Warning:</strong> This action cannot be undone. The script and all associated data will be permanently deleted from the inventory.
+            </div>
+            <div class="modal-actions">
+                <button class="danger" onclick="confirmDeleteScript()">Delete Permanently</button>
+                <button class="secondary" onclick="closeDeleteScriptModal()">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bulk Delete Confirmation Modal -->
+    <div id="bulkDeleteModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>Bulk Delete Scripts</h2>
+            </div>
+            <div id="bulkDeleteError" class="error-message" style="display:none;"></div>
+            <div class="info-grid" style="margin-bottom: 20px;">
+                <div class="info-label">Scripts Selected:</div>
+                <div id="bulkDeleteCount" style="font-weight: bold; color: #dc3545;"></div>
+            </div>
+            <div style="padding: 15px; background: #f8d7da; border-left: 4px solid #dc3545; margin-bottom: 20px;">
+                <strong>⚠️ Critical Warning:</strong> This action cannot be undone. All selected scripts and their associated data will be permanently deleted from the inventory.
+            </div>
+            <div class="form-group">
+                <label for="bulkDeletionReason">Deletion Reason *</label>
+                <textarea id="bulkDeletionReason" rows="3" required placeholder="Enter reason for deleting these scripts (required for audit trail)..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button class="danger" onclick="submitBulkDelete()">Delete All Permanently</button>
+                <button class="secondary" onclick="closeBulkDeleteModal()">Cancel</button>
             </div>
         </div>
     </div>
@@ -1063,19 +1374,30 @@
             }
 
             container.innerHTML = `
+                <div class="bulk-actions" id="bulkActions">
+                    <span class="selection-count" id="selectionCount">0 scripts selected</span>
+                    <button class="secondary" onclick="selectAll()">Select All</button>
+                    <button class="secondary" onclick="selectNone()">Select None</button>
+                    <button class="success" onclick="bulkApprove()" id="bulkApproveBtn">Bulk Approve</button>
+                    <button class="danger" onclick="bulkReject()" id="bulkRejectBtn">Bulk Reject</button>
+                </div>
                 <table>
                     <thead>
                         <tr>
+                            <th class="checkbox-cell"><input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)"></th>
                             <th>URL</th>
                             <th>Type</th>
                             <th>First Seen</th>
-                            <th>Page</th>
+                            <th>Last Loaded From</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
                         ${scripts.map(script => `
                             <tr>
+                                <td class="checkbox-cell">
+                                    <input type="checkbox" class="script-checkbox" data-script-id="${script.id}" onchange="updateBulkActions()">
+                                </td>
                                 <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;">${script.url}</td>
                                 <td><span class="badge">${script.script_type}</span></td>
                                 <td>${new Date(script.first_seen).toLocaleString()}</td>
@@ -1091,6 +1413,422 @@
                     </tbody>
                 </table>
             `;
+        }
+
+        // Bulk selection functions
+        function updateBulkActions() {
+            const checkboxes = document.querySelectorAll('.script-checkbox');
+            const checked = Array.from(checkboxes).filter(cb => cb.checked);
+            const count = checked.length;
+
+            const bulkActions = document.getElementById('bulkActions');
+            const selectionCount = document.getElementById('selectionCount');
+            const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+
+            if (count > 0) {
+                bulkActions.classList.add('active');
+                selectionCount.textContent = `${count} script${count !== 1 ? 's' : ''} selected`;
+            } else {
+                bulkActions.classList.remove('active');
+            }
+
+            // Update select all checkbox state
+            if (selectAllCheckbox) {
+                selectAllCheckbox.checked = count > 0 && count === checkboxes.length;
+                selectAllCheckbox.indeterminate = count > 0 && count < checkboxes.length;
+            }
+        }
+
+        function toggleSelectAll(checkbox) {
+            const checkboxes = document.querySelectorAll('.script-checkbox');
+            checkboxes.forEach(cb => cb.checked = checkbox.checked);
+            updateBulkActions();
+        }
+
+        function selectAll() {
+            const checkboxes = document.querySelectorAll('.script-checkbox');
+            checkboxes.forEach(cb => cb.checked = true);
+            updateBulkActions();
+        }
+
+        function selectNone() {
+            const checkboxes = document.querySelectorAll('.script-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+            updateBulkActions();
+        }
+
+        function getSelectedScriptIds() {
+            const checkboxes = document.querySelectorAll('.script-checkbox:checked');
+            return Array.from(checkboxes).map(cb => parseInt(cb.getAttribute('data-script-id')));
+        }
+
+        async function bulkApprove() {
+            const scriptIds = getSelectedScriptIds();
+
+            if (scriptIds.length === 0) {
+                showNotification('Please select at least one script to approve', 'warning');
+                return;
+            }
+
+            // Open the bulk approval modal
+            openBulkApprovalModal(scriptIds);
+        }
+
+        function openBulkApprovalModal(scriptIds) {
+            // Store script IDs for later use
+            window.bulkApproveScriptIds = scriptIds;
+
+            // Update the count display
+            document.getElementById('bulkApproveCount').textContent =
+                `${scriptIds.length} script${scriptIds.length !== 1 ? 's' : ''}`;
+
+            // Set default values
+            document.getElementById('bulkBusinessJustification').value = 'Bulk approval of reviewed scripts';
+            document.getElementById('bulkScriptPurpose').value = 'Third-party integration';
+            document.getElementById('bulkScriptOwner').value = 'Security Team';
+            document.getElementById('bulkRiskLevel').value = 'low';
+            document.getElementById('bulkApprovalNotes').value = '';
+
+            // Hide any previous errors
+            document.getElementById('bulkApprovalError').style.display = 'none';
+
+            // Show the modal
+            document.getElementById('bulkApprovalModal').style.display = 'flex';
+        }
+
+        function closeBulkApprovalModal() {
+            document.getElementById('bulkApprovalModal').style.display = 'none';
+            window.bulkApproveScriptIds = null;
+        }
+
+        async function submitBulkApproval() {
+            const scriptIds = window.bulkApproveScriptIds;
+
+            if (!scriptIds || scriptIds.length === 0) {
+                closeBulkApprovalModal();
+                return;
+            }
+
+            // Get form values
+            const businessJustification = document.getElementById('bulkBusinessJustification').value.trim();
+            const scriptPurpose = document.getElementById('bulkScriptPurpose').value.trim();
+            const scriptOwner = document.getElementById('bulkScriptOwner').value.trim() || 'Security Team';
+            const riskLevel = document.getElementById('bulkRiskLevel').value || 'low';
+            const approvalNotes = document.getElementById('bulkApprovalNotes').value.trim() ||
+                                  `Bulk approved ${scriptIds.length} scripts`;
+
+            // Validate required fields
+            if (!businessJustification) {
+                showError('bulkApprovalError', 'Business justification is required');
+                return;
+            }
+
+            if (!scriptPurpose) {
+                showError('bulkApprovalError', 'Script purpose is required');
+                return;
+            }
+
+            try {
+                const response = await apiCall('/api/admin/scripts/bulk-approve', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        scriptIds,
+                        businessJustification,
+                        scriptPurpose,
+                        scriptOwner,
+                        riskLevel,
+                        approvalNotes
+                    })
+                });
+
+                // Close modal
+                closeBulkApprovalModal();
+
+                // Show success notification
+                showNotification(
+                    response.message || `Successfully approved ${response.approved} script${response.approved !== 1 ? 's' : ''}`,
+                    'success'
+                );
+
+                if (response.failedIds && response.failedIds.length > 0) {
+                    console.warn('Failed to approve scripts:', response.failedIds);
+                    showNotification(
+                        `${response.failedIds.length} script${response.failedIds.length !== 1 ? 's' : ''} failed to approve`,
+                        'warning'
+                    );
+                }
+
+                // Refresh the pending scripts list
+                await fetchPendingScripts();
+                await fetchDashboardStats();
+
+            } catch (error) {
+                showError('bulkApprovalError', 'Failed to bulk approve scripts: ' + error.message);
+                console.error('Bulk approve error:', error);
+            }
+        }
+
+        async function bulkReject() {
+            const scriptIds = getSelectedScriptIds();
+
+            if (scriptIds.length === 0) {
+                showNotification('Please select at least one script to reject', 'warning');
+                return;
+            }
+
+            // Open the bulk rejection modal
+            openBulkRejectionModal(scriptIds);
+        }
+
+        function openBulkRejectionModal(scriptIds) {
+            // Store script IDs for later use
+            window.bulkRejectScriptIds = scriptIds;
+
+            // Update the count display
+            document.getElementById('bulkRejectCount').textContent =
+                `${scriptIds.length} script${scriptIds.length !== 1 ? 's' : ''}`;
+
+            // Set default values
+            document.getElementById('bulkRejectionReason').value = 'Unauthorized third-party script';
+            document.getElementById('bulkRejectionRiskLevel').value = 'high';
+            document.getElementById('bulkRejectionNotes').value = '';
+
+            // Hide any previous errors
+            document.getElementById('bulkRejectionError').style.display = 'none';
+
+            // Show the modal
+            document.getElementById('bulkRejectionModal').style.display = 'flex';
+        }
+
+        function closeBulkRejectionModal() {
+            document.getElementById('bulkRejectionModal').style.display = 'none';
+            window.bulkRejectScriptIds = null;
+        }
+
+        async function submitBulkRejection() {
+            const scriptIds = window.bulkRejectScriptIds;
+
+            if (!scriptIds || scriptIds.length === 0) {
+                closeBulkRejectionModal();
+                return;
+            }
+
+            // Get form values
+            const rejectionReason = document.getElementById('bulkRejectionReason').value.trim();
+            const riskLevel = document.getElementById('bulkRejectionRiskLevel').value || 'high';
+            const notes = document.getElementById('bulkRejectionNotes').value.trim() ||
+                         `Bulk rejected ${scriptIds.length} scripts`;
+
+            // Validate required fields
+            if (!rejectionReason) {
+                showError('bulkRejectionError', 'Rejection reason is required');
+                return;
+            }
+
+            try {
+                const response = await apiCall('/api/admin/scripts/bulk-reject', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        scriptIds,
+                        rejectionReason,
+                        riskLevel,
+                        notes
+                    })
+                });
+
+                // Close modal
+                closeBulkRejectionModal();
+
+                // Show success notification
+                showNotification(
+                    response.message || `Successfully rejected ${response.rejected} script${response.rejected !== 1 ? 's' : ''}`,
+                    'success'
+                );
+
+                if (response.failedIds && response.failedIds.length > 0) {
+                    console.warn('Failed to reject scripts:', response.failedIds);
+                    showNotification(
+                        `${response.failedIds.length} script${response.failedIds.length !== 1 ? 's' : ''} failed to reject`,
+                        'warning'
+                    );
+                }
+
+                // Refresh the pending scripts list
+                await fetchPendingScripts();
+                await fetchDashboardStats();
+
+            } catch (error) {
+                showError('bulkRejectionError', 'Failed to bulk reject scripts: ' + error.message);
+                console.error('Bulk reject error:', error);
+            }
+        }
+
+        // ============================================================================
+        // DELETE SCRIPT FUNCTIONS
+        // ============================================================================
+
+        let currentDeleteScriptId = null;
+
+        function deleteInventoryScript(scriptId, scriptUrl) {
+            currentDeleteScriptId = scriptId;
+            document.getElementById('deleteScriptId').textContent = scriptId;
+            document.getElementById('deleteScriptUrl').textContent = scriptUrl;
+            document.getElementById('deleteScriptError').style.display = 'none';
+            document.getElementById('deleteScriptModal').style.display = 'flex';
+        }
+
+        function closeDeleteScriptModal() {
+            document.getElementById('deleteScriptModal').style.display = 'none';
+            currentDeleteScriptId = null;
+        }
+
+        async function confirmDeleteScript() {
+            if (!currentDeleteScriptId) {
+                closeDeleteScriptModal();
+                return;
+            }
+
+            try {
+                const response = await apiCall(`/api/admin/scripts/${currentDeleteScriptId}`, {
+                    method: 'DELETE'
+                });
+
+                closeDeleteScriptModal();
+
+                showNotification(
+                    response.message || 'Script deleted successfully',
+                    'success'
+                );
+
+                // Refresh the inventory
+                await searchInventory();
+                await fetchDashboardStats();
+
+            } catch (error) {
+                showError('deleteScriptError', 'Failed to delete script: ' + error.message);
+                console.error('Delete script error:', error);
+            }
+        }
+
+        // ============================================================================
+        // BULK DELETE FUNCTIONS
+        // ============================================================================
+
+        function getSelectedInventoryScriptIds() {
+            const checkboxes = document.querySelectorAll('.inventory-checkbox:checked');
+            return Array.from(checkboxes).map(cb => parseInt(cb.getAttribute('data-script-id')));
+        }
+
+        function toggleAllInventoryCheckboxes(checkbox) {
+            const checkboxes = document.querySelectorAll('.inventory-checkbox');
+            checkboxes.forEach(cb => cb.checked = checkbox.checked);
+            updateInventoryBulkActions();
+        }
+
+        function updateInventoryBulkActions() {
+            const selectedIds = getSelectedInventoryScriptIds();
+            const bulkActions = document.getElementById('inventoryBulkActions');
+            const selectedCount = document.getElementById('inventorySelectedCount');
+
+            if (selectedIds.length > 0) {
+                bulkActions.style.display = 'flex';
+                selectedCount.textContent = `${selectedIds.length} script${selectedIds.length !== 1 ? 's' : ''} selected`;
+            } else {
+                bulkActions.style.display = 'none';
+            }
+
+            // Update "select all" checkbox state
+            const allCheckboxes = document.querySelectorAll('.inventory-checkbox');
+            const selectAllCheckbox = document.getElementById('inventorySelectAll');
+            if (selectAllCheckbox && allCheckboxes.length > 0) {
+                selectAllCheckbox.checked = selectedIds.length === allCheckboxes.length;
+            }
+        }
+
+        function clearInventorySelection() {
+            const checkboxes = document.querySelectorAll('.inventory-checkbox');
+            checkboxes.forEach(cb => cb.checked = false);
+            const selectAllCheckbox = document.getElementById('inventorySelectAll');
+            if (selectAllCheckbox) selectAllCheckbox.checked = false;
+            updateInventoryBulkActions();
+        }
+
+        function bulkDeleteInventory() {
+            const scriptIds = getSelectedInventoryScriptIds();
+
+            if (scriptIds.length === 0) {
+                showNotification('Please select at least one script to delete', 'warning');
+                return;
+            }
+
+            // Open the bulk delete modal
+            openBulkDeleteModal(scriptIds);
+        }
+
+        function openBulkDeleteModal(scriptIds) {
+            window.bulkDeleteScriptIds = scriptIds;
+
+            document.getElementById('bulkDeleteCount').textContent =
+                `${scriptIds.length} script${scriptIds.length !== 1 ? 's' : ''}`;
+
+            document.getElementById('bulkDeletionReason').value = '';
+            document.getElementById('bulkDeleteError').style.display = 'none';
+            document.getElementById('bulkDeleteModal').style.display = 'flex';
+        }
+
+        function closeBulkDeleteModal() {
+            document.getElementById('bulkDeleteModal').style.display = 'none';
+            window.bulkDeleteScriptIds = null;
+        }
+
+        async function submitBulkDelete() {
+            const scriptIds = window.bulkDeleteScriptIds;
+
+            if (!scriptIds || scriptIds.length === 0) {
+                closeBulkDeleteModal();
+                return;
+            }
+
+            const deletionReason = document.getElementById('bulkDeletionReason').value.trim();
+
+            if (!deletionReason) {
+                showError('bulkDeleteError', 'Deletion reason is required');
+                return;
+            }
+
+            try {
+                const response = await apiCall('/api/admin/scripts/bulk-delete', {
+                    method: 'POST',
+                    body: JSON.stringify({
+                        scriptIds,
+                        deletionReason
+                    })
+                });
+
+                closeBulkDeleteModal();
+
+                showNotification(
+                    response.message || `Successfully deleted ${response.deleted} script${response.deleted !== 1 ? 's' : ''}`,
+                    'success'
+                );
+
+                if (response.failedIds && response.failedIds.length > 0) {
+                    console.warn('Failed to delete scripts:', response.failedIds);
+                    showNotification(
+                        `${response.failedIds.length} script${response.failedIds.length !== 1 ? 's' : ''} failed to delete`,
+                        'warning'
+                    );
+                }
+
+                // Clear selection and refresh
+                clearInventorySelection();
+                await searchInventory();
+                await fetchDashboardStats();
+
+            } catch (error) {
+                showError('bulkDeleteError', 'Failed to bulk delete scripts: ' + error.message);
+                console.error('Bulk delete error:', error);
+            }
         }
 
         function renderViolations(violations) {
@@ -1166,6 +1904,7 @@
                 <table>
                     <thead>
                         <tr>
+                            <th><input type="checkbox" id="inventorySelectAll" onchange="toggleAllInventoryCheckboxes(this)"></th>
                             <th>ID</th>
                             <th>URL</th>
                             <th>Type</th>
@@ -1175,6 +1914,7 @@
                             <th>Variation</th>
                             <th>First Seen</th>
                             <th>Approved By</th>
+                            <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -1186,16 +1926,22 @@
                                 '<span style="color: #95a5a6;">-</span>';
 
                             return `
-                            <tr onclick="showScriptDetails(${script.id})" style="cursor: pointer;" title="Click to view details">
-                                <td>${script.id}</td>
-                                <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(script.url)}">${escapeHtml(script.url)}</td>
-                                <td><span class="badge">${script.script_type}</span></td>
-                                <td><span class="badge ${statusColors[script.status] || ''}">${statusLabels[script.status] || script.status}</span></td>
-                                <td><strong>${script.access_count || 0}</strong></td>
-                                <td>${ipDisplay}</td>
-                                <td>${script.is_variation ? `<span class="badge warning" title="Variation #${script.variation_number} of script #${script.parent_script_id}">Var #${script.variation_number}</span>` : '-'}</td>
-                                <td>${new Date(script.first_seen).toLocaleString()}</td>
-                                <td>${script.approved_by || '-'}</td>
+                            <tr>
+                                <td onclick="event.stopPropagation()">
+                                    <input type="checkbox" class="inventory-checkbox" data-script-id="${script.id}" onchange="updateInventoryBulkActions()">
+                                </td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer;" title="Click to view details">${script.id}</td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer; max-width: 300px; overflow: hidden; text-overflow: ellipsis;" title="${escapeHtml(script.url)}">${escapeHtml(script.url)}</td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer;"><span class="badge">${script.script_type}</span></td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer;"><span class="badge ${statusColors[script.status] || ''}">${statusLabels[script.status] || script.status}</span></td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer;"><strong>${script.access_count || 0}</strong></td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer;">${ipDisplay}</td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer;">${script.is_variation ? `<span class="badge warning" title="Variation #${script.variation_number} of script #${script.parent_script_id}">Var #${script.variation_number}</span>` : '-'}</td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer;">${new Date(script.first_seen).toLocaleString()}</td>
+                                <td onclick="showScriptDetails(${script.id})" style="cursor: pointer;">${script.approved_by || '-'}</td>
+                                <td onclick="event.stopPropagation()">
+                                    <button class="danger small" onclick="deleteInventoryScript(${script.id}, '${escapeHtml(script.url).replace(/'/g, "\\'")}')">Delete</button>
+                                </td>
                             </tr>
                             `;
                         }).join('')}
@@ -1345,7 +2091,7 @@
                                 <div><span class="badge success">Variation #${script.variation_number}</span> <span style="color: #7f8c8d; font-size: 12px;">(parent of variations)</span></div>
                                 ` : ''}
 
-                                <div class="info-label">Page URL:</div>
+                                <div class="info-label">Last Loaded From:</div>
                                 <div style="word-break: break-all;">${escapeHtml(script.page_url)}</div>
 
                                 <div class="info-label">Discovery Context:</div>
@@ -1670,8 +2416,15 @@
                     }
                 });
             }
-            
+
             document.getElementById(tabName).classList.add('active');
+
+            // Initialize audit trail with 30-day default when tab is opened
+            if (tabName === 'audit') {
+                setDefault30DayRange();
+                loadAuditStats();
+                loadAuditTrail();
+            }
         }
 
         // Utilities
@@ -1679,6 +2432,59 @@
             const el = document.getElementById(elementId);
             el.textContent = message;
             el.style.display = 'block';
+        }
+
+        function showNotification(message, type = 'info') {
+            const container = document.getElementById('notificationContainer');
+            const notification = document.createElement('div');
+
+            // Set styles based on type
+            const styles = {
+                success: { bg: '#d4edda', border: '#28a745', color: '#155724' },
+                error: { bg: '#f8d7da', border: '#dc3545', color: '#721c24' },
+                warning: { bg: '#fff3cd', border: '#ffc107', color: '#856404' },
+                info: { bg: '#d1ecf1', border: '#17a2b8', color: '#0c5460' }
+            };
+
+            const style = styles[type] || styles.info;
+
+            notification.style.cssText = `
+                background: ${style.bg};
+                border-left: 4px solid ${style.border};
+                color: ${style.color};
+                padding: 15px 20px;
+                margin-bottom: 10px;
+                border-radius: 4px;
+                box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+                animation: slideIn 0.3s ease-out;
+                position: relative;
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            `;
+
+            notification.innerHTML = `
+                <span>${escapeHtml(message)}</span>
+                <button onclick="this.parentElement.remove()" style="
+                    background: none;
+                    border: none;
+                    color: ${style.color};
+                    cursor: pointer;
+                    font-size: 20px;
+                    padding: 0 5px;
+                    margin-left: 15px;
+                ">&times;</button>
+            `;
+
+            container.appendChild(notification);
+
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                if (notification.parentElement) {
+                    notification.style.animation = 'slideOut 0.3s ease-out';
+                    setTimeout(() => notification.remove(), 300);
+                }
+            }, 5000);
         }
 
         function escapeHtml(text) {
@@ -1700,6 +2506,372 @@
             loadUsers();
             updateMfaStatus();
             updateAccountInfo();
+            fetchHeaderViolations();
+            fetchNetworkViolations();
+        }
+
+        // =====================================================================
+        // HTTP Header Monitoring Functions (PCI DSS 11.6.1)
+        // =====================================================================
+
+        function showHeaderSubTab(tabId, clickedElement) {
+            document.querySelectorAll('#headers .tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.header-subtab').forEach(s => s.style.display = 'none');
+            clickedElement.classList.add('active');
+            document.getElementById(tabId).style.display = 'block';
+
+            if (tabId === 'headerViolations') fetchHeaderViolations();
+            else if (tabId === 'headerBaselines') fetchHeaderBaselines();
+        }
+
+        async function fetchHeaderViolations() {
+            const container = document.getElementById('headerViolationsContent');
+            container.innerHTML = '<div class="loading">Loading...</div>';
+
+            try {
+                const response = await apiCall('/api/admin/headers/violations');
+                if (response.success) {
+                    renderHeaderViolations(response.data);
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        function renderHeaderViolations(violations) {
+            const container = document.getElementById('headerViolationsContent');
+
+            if (!violations || violations.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No Header Violations</h3>
+                        <p>No HTTP header tampering detected.</p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = `
+                <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                    <strong>Note:</strong> Duplicate violations (same page, header, and type) are automatically grouped into a single record.
+                    The "Last Detected" timestamp shows when the violation was most recently seen.
+                    <br><br>
+                    <strong>Smart Reopening:</strong> If you mark a violation as "resolved" or "false positive" but it occurs again,
+                    the system will automatically reopen it and change the status back to "pending" with an alert.
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Page URL</th>
+                            <th>Header</th>
+                            <th>Type</th>
+                            <th>Severity</th>
+                            <th>Last Detected</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${violations.map(v => `
+                            <tr>
+                                <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(v.page_url || '')}</td>
+                                <td><strong>${escapeHtml(v.header_name || '')}</strong></td>
+                                <td><span class="badge">${v.violation_type}</span></td>
+                                <td><span class="badge ${v.severity?.toLowerCase() || 'high'}">${v.severity}</span></td>
+                                <td>${new Date(v.detected_at).toLocaleString()}</td>
+                                <td><span class="badge ${v.review_status}">${v.review_status}</span></td>
+                                <td class="action-buttons">
+                                    <button class="small success" onclick="reviewHeaderViolation(${v.id}, 'resolved')">Resolve</button>
+                                    <button class="small secondary" onclick="reviewHeaderViolation(${v.id}, 'false_positive')">False Positive</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        async function reviewHeaderViolation(id, status) {
+            const notes = prompt('Enter review notes (optional):');
+            try {
+                await apiCall(`/api/admin/headers/violations/${id}/review`, {
+                    method: 'POST',
+                    body: JSON.stringify({ status, notes })
+                });
+                alert('Violation reviewed successfully');
+                fetchHeaderViolations();
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function fetchHeaderBaselines() {
+            const container = document.getElementById('headerBaselinesContent');
+            container.innerHTML = '<div class="loading">Loading...</div>';
+
+            try {
+                const response = await apiCall('/api/admin/headers/baselines');
+                if (response.success) {
+                    renderHeaderBaselines(response.data);
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        function renderHeaderBaselines(baselines) {
+            const container = document.getElementById('headerBaselinesContent');
+
+            if (!baselines || baselines.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No Header Baselines</h3>
+                        <p>No pages are being monitored for header changes yet.</p>
+                        <p style="margin-top: 15px; font-size: 13px; color: #95a5a6;">
+                            Header baselines are automatically created when a page with the HTTP Header Monitor loads.<br>
+                            Include <code>http-header-monitor.js</code> on your payment pages to start monitoring.
+                        </p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = `
+                <div style="margin-bottom: 15px;">
+                    <span style="color: #7f8c8d;">Monitoring ${baselines.length} page(s) for header changes</span>
+                </div>
+                ${baselines.map(b => `
+                    <div style="background: #fff; border: 1px solid #ecf0f1; border-radius: 8px; margin-bottom: 20px; overflow: hidden;">
+                        <div style="background: #f8f9fa; padding: 15px; border-bottom: 1px solid #ecf0f1;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <strong style="font-size: 14px;">Page URL:</strong>
+                                    <a href="${escapeHtml(b.page_url || '')}" target="_blank" style="color: #3498db; margin-left: 10px; word-break: break-all;">
+                                        ${escapeHtml(b.page_url || '')}
+                                    </a>
+                                </div>
+                                <div style="text-align: right; color: #7f8c8d; font-size: 12px;">
+                                    <div>Created: ${new Date(b.created_at).toLocaleString()}</div>
+                                    <div>Last Verified: ${b.last_verified ? new Date(b.last_verified).toLocaleString() : '-'}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="padding: 15px;">
+                            <h4 style="margin-bottom: 10px; color: #2c3e50;">Monitored Headers (${Object.keys(b.headers || {}).length})</h4>
+                            <table style="font-size: 13px;">
+                                <thead>
+                                    <tr>
+                                        <th style="width: 250px;">Header Name</th>
+                                        <th>Baseline Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${Object.entries(b.headers || {}).map(([name, value]) => `
+                                        <tr>
+                                            <td><code style="background: #f8f9fa; padding: 2px 6px; border-radius: 3px;">${escapeHtml(name)}</code></td>
+                                            <td style="word-break: break-all; font-family: monospace; font-size: 12px; color: #555;">${escapeHtml(value || '(empty)')}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                `).join('')}`;
+        }
+
+        // =====================================================================
+        // Network Monitoring Functions (PCI DSS 11.6.1)
+        // =====================================================================
+
+        function showNetworkSubTab(tabId, clickedElement) {
+            document.querySelectorAll('#network .tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.network-subtab').forEach(s => s.style.display = 'none');
+            clickedElement.classList.add('active');
+            document.getElementById(tabId).style.display = 'block';
+
+            if (tabId === 'networkViolations') fetchNetworkViolations();
+            else if (tabId === 'networkWhitelist') fetchNetworkWhitelist();
+        }
+
+        async function fetchNetworkViolations() {
+            const container = document.getElementById('networkViolationsContent');
+            container.innerHTML = '<div class="loading">Loading...</div>';
+
+            const blockedOnly = document.getElementById('showBlockedOnly')?.checked;
+            const params = blockedOnly ? '?blocked=true' : '';
+
+            try {
+                const response = await apiCall(`/api/admin/network/violations${params}`);
+                if (response.success) {
+                    renderNetworkViolations(response.data);
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        function renderNetworkViolations(violations) {
+            const container = document.getElementById('networkViolationsContent');
+
+            if (!violations || violations.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No Network Violations</h3>
+                        <p>No unauthorized network requests detected.</p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = `
+                <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                    <strong>Note:</strong> Duplicate violations (same page, destination, and request type) are automatically grouped into a single record.
+                    The "Last Detected" timestamp shows when the violation was most recently seen.
+                    <br><br>
+                    <strong>Smart Reopening:</strong> If you mark a violation as "resolved", "false positive", or "whitelisted" but it occurs again,
+                    the system will automatically reopen it and change the status back to "pending" with a high-priority alert.
+                </div>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Source Page</th>
+                            <th>Destination</th>
+                            <th>Type</th>
+                            <th>Blocked</th>
+                            <th>Last Detected</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${violations.map(v => `
+                            <tr>
+                                <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(v.page_url || '')}</td>
+                                <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">
+                                    <strong>${escapeHtml(v.destination_origin || '')}</strong><br>
+                                    <small style="color: #7f8c8d;">${escapeHtml(v.destination_url || '')}</small>
+                                </td>
+                                <td><span class="badge">${v.request_type}</span></td>
+                                <td>${v.blocked ? '<span class="badge high">BLOCKED</span>' : '<span class="badge low">Reported</span>'}</td>
+                                <td>${new Date(v.detected_at).toLocaleString()}</td>
+                                <td><span class="badge ${v.review_status}">${v.review_status}</span></td>
+                                <td class="action-buttons">
+                                    <button class="small success" onclick="whitelistFromViolation(${v.id})">Whitelist</button>
+                                    <button class="small secondary" onclick="reviewNetworkViolation(${v.id}, 'resolved')">Resolve</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        async function reviewNetworkViolation(id, status) {
+            const notes = prompt('Enter review notes (optional):');
+            try {
+                await apiCall(`/api/admin/network/violations/${id}/review`, {
+                    method: 'POST',
+                    body: JSON.stringify({ status, notes })
+                });
+                alert('Violation reviewed successfully');
+                fetchNetworkViolations();
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function whitelistFromViolation(id) {
+            const justification = prompt('Enter business justification for whitelisting this domain:');
+            if (!justification) return;
+
+            try {
+                await apiCall(`/api/admin/network/violations/${id}/whitelist`, {
+                    method: 'POST',
+                    body: JSON.stringify({ businessJustification: justification })
+                });
+                alert('Domain whitelisted successfully');
+                fetchNetworkViolations();
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        async function fetchNetworkWhitelist() {
+            const container = document.getElementById('networkWhitelistContent');
+            container.innerHTML = '<div class="loading">Loading...</div>';
+
+            try {
+                const response = await apiCall('/api/admin/network/whitelist');
+                if (response.success) {
+                    renderNetworkWhitelist(response.data);
+                }
+            } catch (error) {
+                container.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
+            }
+        }
+
+        function renderNetworkWhitelist(whitelist) {
+            const container = document.getElementById('networkWhitelistContent');
+
+            if (!whitelist || whitelist.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>No Whitelisted Domains</h3>
+                        <p>Add trusted domains that are allowed to receive network requests.</p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Domain</th>
+                            <th>Pattern Type</th>
+                            <th>Justification</th>
+                            <th>Added By</th>
+                            <th>Added At</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${whitelist.map(w => `
+                            <tr>
+                                <td><strong>${escapeHtml(w.domain || '')}</strong></td>
+                                <td>${w.pattern_type || 'exact'}</td>
+                                <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis;">${escapeHtml(w.business_justification || '-')}</td>
+                                <td>${escapeHtml(w.added_by || '-')}</td>
+                                <td>${new Date(w.added_at).toLocaleString()}</td>
+                                <td class="action-buttons">
+                                    <button class="small danger" onclick="removeFromWhitelist(${w.id})">Remove</button>
+                                </td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>`;
+        }
+
+        async function removeFromWhitelist(id) {
+            if (!confirm('Are you sure you want to remove this domain from the whitelist?')) return;
+
+            try {
+                await apiCall(`/api/admin/network/whitelist/${id}`, { method: 'DELETE' });
+                alert('Domain removed from whitelist');
+                fetchNetworkWhitelist();
+            } catch (error) {
+                alert('Error: ' + error.message);
+            }
+        }
+
+        function openAddWhitelistModal() {
+            const domain = prompt('Enter domain to whitelist (e.g., https://api.example.com):');
+            if (!domain) return;
+
+            const justification = prompt('Enter business justification:');
+            if (!justification) return;
+
+            // For simplicity, directly add to whitelist - in production use a proper modal
+            addToWhitelist(domain, justification);
+        }
+
+        async function addToWhitelist(domain, justification) {
+            // This would require a new endpoint - for now show message
+            alert('To add a new domain to whitelist, please use the "Whitelist" action on a network violation, or add via database.');
         }
 
         // MFA Status and Management
@@ -1926,6 +3098,37 @@
         }
 
         document.getElementById('loginButton').addEventListener('click', login);
+
+        // Enable Enter key to submit login form
+        document.getElementById('username').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                login();
+            }
+        });
+
+        document.getElementById('password').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                login();
+            }
+        });
+
+        // Enable Enter key for MFA code input
+        document.getElementById('mfaCode').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                verifyMFA();
+            }
+        });
+
+        // Enable Enter key for backup code input
+        document.getElementById('backupCode').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                verifyBackupCode();
+            }
+        });
 
         // ============================================================================
         // USER MANAGEMENT FUNCTIONS
@@ -2265,6 +3468,249 @@
             return div.innerHTML;
         }
 
+        // ======================
+        // Audit Trail Functions
+        // ======================
+
+        let currentAuditPage = 1;
+        const auditPageSize = 50;
+
+        /**
+         * Load audit trail with filters and pagination
+         */
+        async function loadAuditTrail(page = 1) {
+            currentAuditPage = page;
+
+            const actionType = document.getElementById('auditFilterActionType').value;
+            const username = document.getElementById('auditFilterUsername').value;
+            const startDate = document.getElementById('auditFilterStartDate').value;
+            const endDate = document.getElementById('auditFilterEndDate').value;
+            const success = document.getElementById('auditFilterSuccess').value;
+
+            // Build query parameters
+            const params = new URLSearchParams({
+                page: page,
+                limit: auditPageSize
+            });
+
+            if (actionType) params.append('actionType', actionType);
+            if (username) params.append('username', username);
+            if (startDate) params.append('startDate', startDate);
+            if (endDate) params.append('endDate', endDate);
+            if (success) params.append('success', success);
+
+            try {
+                const data = await apiCall(`/api/admin/audit-trail?${params}`);
+                //const data = await response.json();
+
+                if (data.error) {
+                    document.getElementById('auditContent').innerHTML =
+                        `<div class="error-message">${escapeHtml(data.error)}</div>`;
+                    return;
+                }
+
+                renderAuditTrail(data);
+                renderAuditPagination(data);
+            } catch (error) {
+                console.error('Failed to load audit trail:', error);
+                document.getElementById('auditContent').innerHTML =
+                    '<div class="error-message">Failed to load audit trail</div>';
+            }
+        }
+
+        /**
+         * Render audit trail table
+         */
+        function renderAuditTrail(data) {
+            const container = document.getElementById('auditContent');
+
+            if (!data.logs || data.logs.length === 0) {
+                container.innerHTML = '<p style="text-align: center; color: #7f8c8d; padding: 40px;">No audit logs found for the selected filters.</p>';
+                return;
+            }
+
+            let html = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th style="width: 140px;">Timestamp</th>
+                            <th style="width: 120px;">User</th>
+                            <th style="width: 180px;">Action</th>
+                            <th style="width: 100px;">Entity</th>
+                            <th>Description</th>
+                            <th style="width: 80px;">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            data.logs.forEach(log => {
+                const timestamp = new Date(log.timestamp).toLocaleString();
+                const statusBadge = log.success
+                    ? '<span class="badge badge-success">Success</span>'
+                    : '<span class="badge badge-danger">Failed</span>';
+
+                const actionBadge = getActionBadge(log.action_type);
+
+                html += `
+                    <tr>
+                        <td style="font-size: 12px;">${escapeHtml(timestamp)}</td>
+                        <td><strong>${escapeHtml(log.username)}</strong></td>
+                        <td>${actionBadge}</td>
+                        <td style="font-size: 12px;">${log.entity_type ? escapeHtml(log.entity_type) : '-'}</td>
+                        <td>${escapeHtml(log.action_description)}</td>
+                        <td>${statusBadge}</td>
+                    </tr>
+                `;
+
+                // Add reason/notes row if available
+                if (log.action_reason || log.error_message) {
+                    html += `
+                        <tr style="background: #f8f9fa;">
+                            <td colspan="6" style="padding: 8px 12px; font-size: 12px; color: #7f8c8d;">
+                                ${log.action_reason ? `<strong>Reason:</strong> ${escapeHtml(log.action_reason)}` : ''}
+                                ${log.error_message ? `<strong style="color: #e74c3c;">Error:</strong> ${escapeHtml(log.error_message)}` : ''}
+                            </td>
+                        </tr>
+                    `;
+                }
+            });
+
+            html += `
+                    </tbody>
+                </table>
+            `;
+
+            container.innerHTML = html;
+        }
+
+        /**
+         * Get styled badge for action type
+         */
+        function getActionBadge(actionType) {
+            const badges = {
+                'script_approved': '<span class="badge badge-success">Script Approved</span>',
+                'script_rejected': '<span class="badge badge-danger">Script Rejected</span>',
+                'script_deleted': '<span class="badge badge-warning">Script Deleted</span>',
+                'scripts_bulk_deleted': '<span class="badge badge-warning">Bulk Deleted</span>',
+                'violation_reviewed': '<span class="badge badge-info">Violation Reviewed</span>',
+                'violation_deleted': '<span class="badge badge-warning">Violation Deleted</span>',
+                'violations_bulk_deleted': '<span class="badge badge-warning">Violations Bulk Deleted</span>',
+                'user_created': '<span class="badge badge-success">User Created</span>',
+                'user_updated': '<span class="badge badge-info">User Updated</span>',
+                'user_deleted': '<span class="badge badge-danger">User Deleted</span>',
+                'login_success': '<span class="badge badge-success">Login</span>',
+                'login_failed': '<span class="badge badge-danger">Login Failed</span>',
+                'logout': '<span class="badge badge-info">Logout</span>'
+            };
+
+            return badges[actionType] || `<span class="badge">${escapeHtml(actionType)}</span>`;
+        }
+
+        /**
+         * Render pagination controls
+         */
+        function renderAuditPagination(data) {
+            const container = document.getElementById('auditPagination');
+
+            if (data.totalPages <= 1) {
+                container.innerHTML = '';
+                return;
+            }
+
+            let html = '<div style="display: flex; justify-content: center; align-items: center; gap: 10px;">';
+
+            // Previous button
+            if (data.page > 1) {
+                html += `<button onclick="loadAuditTrail(${data.page - 1})" class="secondary">Previous</button>`;
+            }
+
+            // Page numbers
+            const startPage = Math.max(1, data.page - 2);
+            const endPage = Math.min(data.totalPages, data.page + 2);
+
+            if (startPage > 1) {
+                html += `<button onclick="loadAuditTrail(1)" class="secondary">1</button>`;
+                if (startPage > 2) html += '<span>...</span>';
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                if (i === data.page) {
+                    html += `<button class="success" disabled>${i}</button>`;
+                } else {
+                    html += `<button onclick="loadAuditTrail(${i})" class="secondary">${i}</button>`;
+                }
+            }
+
+            if (endPage < data.totalPages) {
+                if (endPage < data.totalPages - 1) html += '<span>...</span>';
+                html += `<button onclick="loadAuditTrail(${data.totalPages})" class="secondary">${data.totalPages}</button>`;
+            }
+
+            // Next button
+            if (data.page < data.totalPages) {
+                html += `<button onclick="loadAuditTrail(${data.page + 1})" class="secondary">Next</button>`;
+            }
+
+            html += `</div>`;
+            html += `<p style="text-align: center; color: #7f8c8d; margin-top: 15px; font-size: 14px;">
+                Showing ${((data.page - 1) * auditPageSize) + 1} - ${Math.min(data.page * auditPageSize, data.total)} of ${data.total} logs
+            </p>`;
+
+            container.innerHTML = html;
+        }
+
+        /**
+         * Load audit trail statistics
+         */
+        async function loadAuditStats() {
+            try {
+                const stats = await apiCall('/api/admin/audit-trail/stats');
+                //const stats = await response.json();
+
+                const container = document.getElementById('auditStats');
+                container.innerHTML = `
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.totalLogs || 0}</div>
+                        <div class="stat-label">Total Logs</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.last24Hours || 0}</div>
+                        <div class="stat-label">Last 24 Hours</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.last7Days || 0}</div>
+                        <div class="stat-label">Last 7 Days</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value">${stats.failedActions || 0}</div>
+                        <div class="stat-label">Failed Actions</div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Failed to load audit stats:', error);
+            }
+        }
+
+        /**
+         * Apply audit filters and reload
+         */
+        function applyAuditFilters() {
+            loadAuditTrail(1); // Reset to page 1
+        }
+
+        /**
+         * Set default date range to last 30 days
+         */
+        function setDefault30DayRange() {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(startDate.getDate() - 30);
+
+            document.getElementById('auditFilterEndDate').value = endDate.toISOString().split('T')[0];
+            document.getElementById('auditFilterStartDate').value = startDate.toISOString().split('T')[0];
+        }
+
         // Add click outside to close modals
         window.onclick = function(event) {
             if (event.target.classList.contains('modal')) {
@@ -2278,5 +3724,8 @@
         };
 
     </script>
+
+    <!-- Notification Container -->
+    <div id="notificationContainer" style="position: fixed; top: 20px; right: 20px; z-index: 10000; max-width: 400px;"></div>
 </body>
 </html>

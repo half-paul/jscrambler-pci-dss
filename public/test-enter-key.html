@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Enter Key Support</title>
+
+    <!-- Test Page Navigation -->
+    <script src="test-navigation.js"></script>
+
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f7fa;
+        }
+        .test-card {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 { color: #2c3e50; margin-bottom: 10px; }
+        .subtitle { color: #7f8c8d; margin-bottom: 30px; }
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 15px;
+        }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+            color: #555;
+        }
+        input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        button {
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        button:hover { background: #2980b9; }
+        .log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            margin-top: 15px;
+        }
+        .log .success { color: #81c784; }
+        .log .info { color: #4fc3f7; }
+    </style>
+</head>
+<body>
+    <div class="test-card">
+        <h1>Enter Key Support Test</h1>
+        <p class="subtitle">Verify that pressing Enter in input fields triggers the submit action</p>
+
+        <div class="status info">
+            <strong>Instructions:</strong>
+            <ol style="margin: 10px 0 0 20px;">
+                <li>Type something in the username field and press <kbd>Enter</kbd></li>
+                <li>Type something in the password field and press <kbd>Enter</kbd></li>
+                <li>Check the log below to see if the form was submitted</li>
+            </ol>
+        </div>
+
+        <div style="margin-top: 30px;">
+            <div class="form-group">
+                <label for="testUsername">Username</label>
+                <input type="text" id="testUsername" placeholder="Type and press Enter">
+            </div>
+
+            <div class="form-group">
+                <label for="testPassword">Password</label>
+                <input type="password" id="testPassword" placeholder="Type and press Enter">
+            </div>
+
+            <button id="testButton">Submit (or press Enter in fields above)</button>
+        </div>
+
+        <div class="log" id="log">Waiting for user input...\n</div>
+    </div>
+
+    <div class="test-card">
+        <h2>Admin Panel Login</h2>
+        <p class="subtitle">The actual admin panel login form should now support Enter key</p>
+        <div class="status success">
+            <strong>✓ Implementation Complete</strong><br>
+            The following forms now support Enter key submission:
+            <ul style="margin: 10px 0 0 20px;">
+                <li>Login form (username and password fields)</li>
+                <li>MFA verification form (6-digit code field)</li>
+                <li>Backup code form (backup code field)</li>
+            </ul>
+        </div>
+        <p style="margin-top: 15px;">
+            <a href="/admin-panel.html" target="_blank" style="color: #3498db; text-decoration: none;">
+                → Open Admin Panel to test live
+            </a>
+        </p>
+    </div>
+
+    <script>
+        const logEl = document.getElementById('log');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            logEl.innerHTML += `<span class="${type}">[${timestamp}]</span> ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function simulateSubmit() {
+            const username = document.getElementById('testUsername').value;
+            const password = document.getElementById('testPassword').value;
+
+            log('✓ Form submitted!', 'success');
+            log(`  Username: ${username || '(empty)'}`, 'info');
+            log(`  Password: ${password ? '*'.repeat(password.length) : '(empty)'}`, 'info');
+            log('', 'info');
+        }
+
+        // Add click handler for button
+        document.getElementById('testButton').addEventListener('click', simulateSubmit);
+
+        // Add Enter key handlers for both fields
+        document.getElementById('testUsername').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                log('Enter key pressed in username field', 'info');
+                simulateSubmit();
+            }
+        });
+
+        document.getElementById('testPassword').addEventListener('keypress', function(event) {
+            if (event.key === 'Enter') {
+                event.preventDefault();
+                log('Enter key pressed in password field', 'info');
+                simulateSubmit();
+            }
+        });
+
+        log('Test page loaded - ready for testing', 'success');
+    </script>
+</body>
+</html>

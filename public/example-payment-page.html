@@ -16,16 +16,16 @@
   <!-- 2. Load monitor SECOND (before any other scripts) -->
   <script src="script-integrity-monitor.js"></script>
 
+  <!-- Load HTTP Header Monitor -->
+  <script src="http-header-monitor.js"></script>
+
   <!--
     Now load other scripts - they will all be monitored
     Include SRI attributes for external scripts (best practice)
   -->
 
   <!-- Example: jQuery from CDN with SRI -->
-  <script
-    src="https://code.jquery.com/jquery-3.7.1.min.js"
-    integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs"
-    crossorigin="anonymous"></script>
+ 
 
   <style>
     body {
@@ -190,6 +190,119 @@
 
   <!-- Inline script: Status display -->
   <script>
+    // Retry mechanism for when monitor isn't ready yet
+    let statusDisplayAttempts = 0;
+    const MAX_STATUS_DISPLAY_ATTEMPTS = 10;
+
+    function displayScriptIntegrityStatus() {
+      try {
+        const statusContent = document.getElementById('statusContent');
+        
+        if (!statusContent) {
+          console.error('[Status Display] statusContent element not found');
+          return;
+        }
+
+        // Check if monitor is available
+        if (!window.ScriptIntegrityMonitor) {
+          statusDisplayAttempts++;
+          if (statusDisplayAttempts < MAX_STATUS_DISPLAY_ATTEMPTS) {
+            // Retry after a short delay
+            setTimeout(function() {
+              displayScriptIntegrityStatus();
+            }, 500);
+            statusContent.innerHTML = '<div class="status-item warning">Waiting for Script Integrity Monitor... (attempt ' + statusDisplayAttempts + ')</div>';
+            return;
+          } else {
+            statusContent.innerHTML = '<div class="status-item error">Script Integrity Monitor not loaded after ' + MAX_STATUS_DISPLAY_ATTEMPTS + ' attempts. Check console for errors.</div>';
+            console.error('[Status Display] Script Integrity Monitor not available');
+            return;
+          }
+        }
+
+        // Check if monitor methods are available
+        if (typeof window.ScriptIntegrityMonitor.getSummary !== 'function') {
+          statusContent.innerHTML = '<div class="status-item error">Script Integrity Monitor API not available</div>';
+          console.error('[Status Display] Monitor API methods not available');
+          return;
+        }
+
+        const summary = window.ScriptIntegrityMonitor.getSummary();
+        // Get all violations (including pending/new scripts) for filtering
+        const allViolations = window.ScriptIntegrityMonitor.getViolations(true);
+        // Only get actual security violations (exclude PENDING_APPROVAL and NEW_SCRIPT)
+        const violations = allViolations.filter(v => 
+          v.violationType !== 'PENDING_APPROVAL' && v.violationType !== 'NEW_SCRIPT'
+        );
+
+        // Check for blocked scripts
+        const blockedScripts = allViolations.filter(v => v.violationType === 'REJECTED_BY_ADMIN');
+
+        let html = '';
+
+        // Overall status - use unauthorizedScripts from summary which correctly filters out pending/new scripts
+        if (summary.unauthorizedScripts === 0) {
+          html += '<div class="status-item ok">✓ All scripts authorized (' + summary.totalScripts + ' scripts)</div>';
+        } else {
+          html += '<div class="status-item error">✗ ' + summary.unauthorizedScripts + ' unauthorized script(s) detected</div>';
+        }
+
+        // Show blocked scripts prominently if any exist
+        if (blockedScripts.length > 0) {
+          html += '<div class="status-item error">🚫 ' + blockedScripts.length + ' script(s) BLOCKED by administrator</div>';
+        }
+
+        // Script counts
+        html += '<div class="status-item ok">• External scripts: ' + summary.externalScripts + '</div>';
+        html += '<div class="status-item ok">• Inline scripts: ' + summary.inlineScripts + '</div>';
+        html += '<div class="status-item ok">• Authorized: ' + summary.authorizedScripts + '</div>';
+
+        if (summary.unauthorizedScripts > 0) {
+          html += '<div class="status-item error">• Unauthorized: ' + summary.unauthorizedScripts + '</div>';
+        }
+
+        // Monitoring info
+        const config = window.SCRIPT_INTEGRITY_CONFIG;
+        if (config) {
+          html += '<div class="status-item ok">• Mode: ' + config.mode + '</div>';
+          html += '<div class="status-item ok">• Algorithm: ' + config.hashAlgorithm + '</div>';
+        }
+
+        // Show blocked script details if any
+        if (blockedScripts.length > 0) {
+          html += '<div class="status-item error" style="margin-top: 10px;"><strong>Blocked Scripts:</strong></div>';
+          blockedScripts.forEach(function(v) {
+            const scriptName = v.src || v.scriptId || 'inline script';
+            html += '<div class="status-item error" style="margin-left: 20px; font-size: 11px;">❌ ' + scriptName + '</div>';
+          });
+        }
+
+        statusContent.innerHTML = html;
+
+        // Log detailed report to console
+        console.log('=== Script Integrity Report ===');
+        console.log('Summary:', summary);
+        console.log('Inventory:', window.ScriptIntegrityMonitor.getInventory());
+        if (violations.length > 0) {
+          console.error('Security Violations:', violations);
+        }
+        // Also show pending/new scripts separately (for informational purposes)
+        const pendingScripts = allViolations.filter(v => 
+          v.violationType === 'PENDING_APPROVAL' || v.violationType === 'NEW_SCRIPT'
+        );
+        if (pendingScripts.length > 0) {
+          console.info('Pending/New Scripts (not security violations):', pendingScripts);
+        }
+        console.log('Full Report:', window.ScriptIntegrityMonitor.generateReport());
+      } catch (error) {
+        const statusContent = document.getElementById('statusContent');
+        if (statusContent) {
+          statusContent.innerHTML = '<div class="status-item error">Error displaying status: ' + error.message + '</div>';
+        }
+        console.error('[Status Display] Error:', error);
+      }
+    }
+
     // Wait for page to fully load
     window.addEventListener('load', function() {
       // Give monitor time to process all scripts (async operations)
@@ -198,77 +311,11 @@
       }, 1500);
     });
 
-    function displayScriptIntegrityStatus() {
-      const statusContent = document.getElementById('statusContent');
-
-      if (!window.ScriptIntegrityMonitor) {
-        statusContent.innerHTML = '<div class="status-item error">Script Integrity Monitor not loaded</div>';
-        return;
-      }
-
-      const summary = window.ScriptIntegrityMonitor.getSummary();
-      // Only get actual security violations (exclude PENDING_APPROVAL and NEW_SCRIPT)
-      const violations = window.ScriptIntegrityMonitor.getViolations(false);
-
-      // Check for blocked scripts
-      const allViolations = window.ScriptIntegrityMonitor.getViolations(true);
-      const blockedScripts = allViolations.filter(v => v.violationType === 'REJECTED_BY_ADMIN');
-
-      let html = '';
-
-      // Overall status - use unauthorizedScripts from summary which correctly filters out pending/new scripts
-      if (summary.unauthorizedScripts === 0) {
-        html += '<div class="status-item ok">✓ All scripts authorized (' + summary.totalScripts + ' scripts)</div>';
-      } else {
-        html += '<div class="status-item error">✗ ' + summary.unauthorizedScripts + ' unauthorized script(s) detected</div>';
-      }
-
-      // Show blocked scripts prominently if any exist
-      if (blockedScripts.length > 0) {
-        html += '<div class="status-item error">🚫 ' + blockedScripts.length + ' script(s) BLOCKED by administrator</div>';
-      }
-
-      // Script counts
-      html += '<div class="status-item ok">• External scripts: ' + summary.externalScripts + '</div>';
-      html += '<div class="status-item ok">• Inline scripts: ' + summary.inlineScripts + '</div>';
-      html += '<div class="status-item ok">• Authorized: ' + summary.authorizedScripts + '</div>';
-
-      if (summary.unauthorizedScripts > 0) {
-        html += '<div class="status-item error">• Unauthorized: ' + summary.unauthorizedScripts + '</div>';
-      }
-
-      // Monitoring info
-      const config = window.SCRIPT_INTEGRITY_CONFIG;
-      html += '<div class="status-item ok">• Mode: ' + config.mode + '</div>';
-      html += '<div class="status-item ok">• Algorithm: ' + config.hashAlgorithm + '</div>';
-
-      // Show blocked script details if any
-      if (blockedScripts.length > 0) {
-        html += '<div class="status-item error" style="margin-top: 10px;"><strong>Blocked Scripts:</strong></div>';
-        blockedScripts.forEach(function(v) {
-          const scriptName = v.src || v.scriptId || 'inline script';
-          html += '<div class="status-item error" style="margin-left: 20px; font-size: 11px;">❌ ' + scriptName + '</div>';
-        });
-      }
-
-      statusContent.innerHTML = html;
-
-      // Log detailed report to console
-      console.log('=== Script Integrity Report ===');
-      console.log('Summary:', summary);
-      console.log('Inventory:', window.ScriptIntegrityMonitor.getInventory());
-      if (violations.length > 0) {
-        console.error('Security Violations:', violations);
-      }
-      // Also show pending/new scripts separately (for informational purposes)
-      const allViolations = window.ScriptIntegrityMonitor.getViolations(true);
-      const pendingScripts = allViolations.filter(v => 
-        v.violationType === 'PENDING_APPROVAL' || v.violationType === 'NEW_SCRIPT'
-      );
-      if (pendingScripts.length > 0) {
-        console.info('Pending/New Scripts (not security violations):', pendingScripts);
-      }
-      console.log('Full Report:', window.ScriptIntegrityMonitor.generateReport());
+    // Also try when DOM is ready (in case load event already fired)
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      setTimeout(function() {
+        displayScriptIntegrityStatus();
+      }, 1500);
     }
 
     // Test: Add a button to dynamically load a script (for testing)
@@ -297,5 +344,15 @@
     }, 2000);
   </script>
   -->
+
+
+   <script
+    src="https://code.jquery.com/jquery-3.7.1.min.js"
+    integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs"
+    crossorigin="anonymous"></script>
+
+  <script src="script-test-block.js"></script>
+  
+
 </body>
 </html>
