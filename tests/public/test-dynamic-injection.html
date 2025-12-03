@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dynamic Script Injection Test - Script Integrity Monitor</title>
+
+  <!-- Test Page Navigation -->
+  <script src="test-navigation.js"></script>
+
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 20px;
+      padding-top: 80px;  /* Extra space for fixed navigation bar */
+      background: #f5f5f5;
+    }
+    h1 {
+      color: #2c3e50;
+      border-bottom: 3px solid #3498db;
+      padding-bottom: 10px;
+    }
+    .test-section {
+      background: white;
+      padding: 20px;
+      margin: 20px 0;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    .test-section h2 {
+      color: #34495e;
+      margin-top: 0;
+    }
+    button {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #2980b9;
+    }
+    button:disabled {
+      background: #95a5a6;
+      cursor: not-allowed;
+    }
+    .result {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+    }
+    .success {
+      background: #d4edda;
+      border: 1px solid #c3e6cb;
+      color: #155724;
+    }
+    .error {
+      background: #f8d7da;
+      border: 1px solid #f5c6cb;
+      color: #721c24;
+    }
+    .info {
+      background: #d1ecf1;
+      border: 1px solid #bee5eb;
+      color: #0c5460;
+    }
+    .warning {
+      background: #fff3cd;
+      border: 1px solid #ffeaa7;
+      color: #856404;
+    }
+    pre {
+      background: #2c3e50;
+      color: #ecf0f1;
+      padding: 15px;
+      border-radius: 4px;
+      overflow-x: auto;
+      font-size: 12px;
+    }
+    .status-badge {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: bold;
+      margin-left: 10px;
+    }
+    .status-enforce {
+      background: #e74c3c;
+      color: white;
+    }
+    .status-report {
+      background: #f39c12;
+      color: white;
+    }
+    .console-output {
+      max-height: 400px;
+      overflow-y: auto;
+      background: #2c3e50;
+      color: #ecf0f1;
+      padding: 15px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+    .console-line {
+      margin: 2px 0;
+      padding: 2px 0;
+      border-bottom: 1px solid #34495e;
+    }
+  </style>
+</head>
+<body>
+  <h1>🔒 Dynamic Script Injection Test</h1>
+
+  <div class="test-section">
+    <h2>Current Configuration</h2>
+    <div id="config-info"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 1: createElement() + appendChild()</h2>
+    <p>Creates a script element using <code>document.createElement()</code> and appends it using <code>appendChild()</code></p>
+    <button onclick="testCreateElementAppendChild()">Run Test</button>
+    <div id="result1"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 2: createElement() + insertBefore()</h2>
+    <p>Creates a script element and inserts it using <code>insertBefore()</code></p>
+    <button onclick="testCreateElementInsertBefore()">Run Test</button>
+    <div id="result2"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 3: createElement() + replaceChild()</h2>
+    <p>Creates a script element and replaces an existing element using <code>replaceChild()</code></p>
+    <button onclick="testCreateElementReplaceChild()">Run Test</button>
+    <div id="result3"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 4: setAttribute('src')</h2>
+    <p>Creates a script element and sets src using <code>setAttribute()</code></p>
+    <button onclick="testSetAttribute()">Run Test</button>
+    <div id="result4"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 5: Direct src property assignment</h2>
+    <p>Creates a script element and sets src using direct property assignment</p>
+    <button onclick="testSrcProperty()">Run Test</button>
+    <div id="result5"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 6: Inline script via createElement</h2>
+    <p>Creates an inline script (textContent) and appends it</p>
+    <button onclick="testInlineScript()">Run Test</button>
+    <div id="result6"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Test 7: Script in dynamically created div</h2>
+    <p>Creates a div containing a script tag and appends the div</p>
+    <button onclick="testScriptInDiv()">Run Test</button>
+    <div id="result7"></div>
+  </div>
+
+  <div class="test-section">
+    <h2>Console Output (Script Integrity Monitor)</h2>
+    <div class="console-output" id="console-output">
+      <div class="console-line">Waiting for console output...</div>
+    </div>
+  </div>
+
+  <!-- Load Script Integrity Monitor FIRST -->
+  <script src="script-integrity-config.js"></script>
+  <script src="script-integrity-monitor.js"></script>
+
+  <script>
+    // Intercept console.log to display in page
+    const consoleOutput = document.getElementById('console-output');
+    const originalLog = console.log;
+    const originalWarn = console.warn;
+    const originalError = console.error;
+
+    function addConsoleMessage(level, args) {
+      const message = Array.from(args).map(arg => {
+        if (typeof arg === 'object') {
+          return JSON.stringify(arg, null, 2);
+        }
+        return String(arg);
+      }).join(' ');
+
+      const line = document.createElement('div');
+      line.className = 'console-line';
+      line.style.color = level === 'error' ? '#e74c3c' : level === 'warn' ? '#f39c12' : '#ecf0f1';
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      consoleOutput.appendChild(line);
+      consoleOutput.scrollTop = consoleOutput.scrollHeight;
+    }
+
+    console.log = function(...args) {
+      addConsoleMessage('log', args);
+      originalLog.apply(console, args);
+    };
+
+    console.warn = function(...args) {
+      addConsoleMessage('warn', args);
+      originalWarn.apply(console, args);
+    };
+
+    console.error = function(...args) {
+      addConsoleMessage('error', args);
+      originalError.apply(console, args);
+    };
+
+    // Display configuration
+    const monitor = window.__SCRIPT_INTEGRITY_MONITOR__;
+    const configInfo = document.getElementById('config-info');
+    if (monitor) {
+      const mode = monitor.config.mode;
+      const modeClass = mode === 'enforce' ? 'status-enforce' : 'status-report';
+      configInfo.innerHTML = `
+        <p><strong>Mode:</strong> <span class="${modeClass} status-badge">${mode.toUpperCase()}</span></p>
+        <p><strong>Monitor Dynamic Scripts:</strong> ${monitor.config.monitorDynamicScripts ? '✅ Yes' : '❌ No'}</p>
+        <p><strong>Server Base URL:</strong> ${monitor.config.serverBaseUrl || 'Not configured'}</p>
+        <p><strong>Auto-Register:</strong> ${monitor.config.autoRegisterNewScripts ? '✅ Yes' : '❌ No'}</p>
+        <p><strong>DOM Method Overrides:</strong> ${monitor.originalMethods ? '✅ Installed' : '❌ Not installed'}</p>
+      `;
+    } else {
+      configInfo.innerHTML = '<p class="error">❌ Script Integrity Monitor not initialized!</p>';
+    }
+
+    // Test URLs (using blocked URLs to test blocking)
+    const BLOCKED_URL = 'https://evil-cdn.example.com/malware.js';
+    const ALLOWED_URL = 'https://cdn.jsdelivr.net/npm/jquery@3.6.0/dist/jquery.min.js';
+
+    function showResult(elementId, success, message) {
+      const resultDiv = document.getElementById(elementId);
+      const className = success ? 'success' : 'error';
+      resultDiv.innerHTML = `<div class="result ${className}">${success ? '✅' : '❌'} ${message}</div>`;
+    }
+
+    function testCreateElementAppendChild() {
+      console.log('🧪 Test 1: createElement() + appendChild()');
+      try {
+        const script = document.createElement('script');
+        script.src = BLOCKED_URL;
+        script.setAttribute('data-test', 'createElement-appendChild');
+
+        document.body.appendChild(script);
+
+        // Check if script was blocked
+        const wasBlocked = script.type === 'blocked-by-integrity-monitor';
+        showResult('result1', wasBlocked, wasBlocked ?
+          'Script was intercepted and blocked by DOM override' :
+          'Script was NOT blocked - may have been allowed or mode is "report"');
+      } catch (error) {
+        showResult('result1', false, `Error: ${error.message}`);
+      }
+    }
+
+    function testCreateElementInsertBefore() {
+      console.log('🧪 Test 2: createElement() + insertBefore()');
+      try {
+        const script = document.createElement('script');
+        script.src = BLOCKED_URL;
+        script.setAttribute('data-test', 'createElement-insertBefore');
+
+        const firstScript = document.querySelector('script');
+        document.head.insertBefore(script, firstScript);
+
+        const wasBlocked = script.type === 'blocked-by-integrity-monitor';
+        showResult('result2', wasBlocked, wasBlocked ?
+          'Script was intercepted and blocked by DOM override' :
+          'Script was NOT blocked - may have been allowed or mode is "report"');
+      } catch (error) {
+        showResult('result2', false, `Error: ${error.message}`);
+      }
+    }
+
+    function testCreateElementReplaceChild() {
+      console.log('🧪 Test 3: createElement() + replaceChild()');
+      try {
+        // Create a placeholder element
+        const placeholder = document.createElement('div');
+        placeholder.id = 'placeholder-for-replace';
+        document.body.appendChild(placeholder);
+
+        const script = document.createElement('script');
+        script.src = BLOCKED_URL;
+        script.setAttribute('data-test', 'createElement-replaceChild');
+
+        document.body.replaceChild(script, placeholder);
+
+        const wasBlocked = script.type === 'blocked-by-integrity-monitor';
+        showResult('result3', wasBlocked, wasBlocked ?
+          'Script was intercepted and blocked by DOM override' :
+          'Script was NOT blocked - may have been allowed or mode is "report"');
+      } catch (error) {
+        showResult('result3', false, `Error: ${error.message}`);
+      }
+    }
+
+    function testSetAttribute() {
+      console.log('🧪 Test 4: setAttribute("src")');
+      try {
+        const script = document.createElement('script');
+        script.setAttribute('data-test', 'setAttribute-src');
+        script.setAttribute('src', BLOCKED_URL);
+
+        document.body.appendChild(script);
+
+        const wasBlocked = script.type === 'blocked-by-integrity-monitor';
+        showResult('result4', wasBlocked, wasBlocked ?
+          'Script was intercepted and blocked via setAttribute override' :
+          'Script was NOT blocked - may have been allowed or mode is "report"');
+      } catch (error) {
+        showResult('result4', false, `Error: ${error.message}`);
+      }
+    }
+
+    function testSrcProperty() {
+      console.log('🧪 Test 5: Direct src property assignment');
+      try {
+        const script = document.createElement('script');
+        script.setAttribute('data-test', 'src-property');
+        script.src = BLOCKED_URL;  // Direct property assignment
+
+        document.body.appendChild(script);
+
+        const wasBlocked = script.type === 'blocked-by-integrity-monitor';
+        showResult('result5', wasBlocked, wasBlocked ?
+          'Script was intercepted and blocked via src property override' :
+          'Script was NOT blocked - may have been allowed or mode is "report"');
+      } catch (error) {
+        showResult('result5', false, `Error: ${error.message}`);
+      }
+    }
+
+    function testInlineScript() {
+      console.log('🧪 Test 6: Inline script via createElement');
+      try {
+        const script = document.createElement('script');
+        script.setAttribute('data-test', 'inline-script');
+        script.textContent = 'console.log("This is a dynamically injected inline script");';
+
+        document.body.appendChild(script);
+
+        const wasBlocked = script.type === 'blocked-by-integrity-monitor';
+        showResult('result6', wasBlocked, wasBlocked ?
+          'Inline script was blocked' :
+          'Inline script was allowed (may execute or be in report mode)');
+      } catch (error) {
+        showResult('result6', false, `Error: ${error.message}`);
+      }
+    }
+
+    function testScriptInDiv() {
+      console.log('🧪 Test 7: Script in dynamically created div');
+      try {
+        const div = document.createElement('div');
+        div.innerHTML = '<script src="' + BLOCKED_URL + '" data-test="script-in-div"/>';
+
+        document.body.appendChild(div);
+
+        // Give MutationObserver time to detect
+        setTimeout(() => {
+          const script = div.querySelector('script');
+          if (script) {
+            const wasBlocked = script.type === 'blocked-by-integrity-monitor';
+            showResult('result7', wasBlocked, wasBlocked ?
+              'Script was detected and blocked by MutationObserver' :
+              'Script was processed (may be allowed or in report mode)');
+          } else {
+            showResult('result7', true, 'Script element not found in div');
+          }
+        }, 100);
+      } catch (error) {
+        showResult('result7', false, `Error: ${error.message}`);
+      }
+    }
+
+    // Add blocked script to monitor's blocked list for testing
+    if (monitor && monitor.config.mode === 'enforce') {
+      monitor.blockedScripts.add(BLOCKED_URL);
+      console.log('✅ Added test URL to blocked scripts list:', BLOCKED_URL);
+    } else if (monitor) {
+      console.warn('⚠️  Monitor is in REPORT mode - scripts will not be blocked, only monitored');
+    }
+
+    console.log('🔒 Dynamic Script Injection Test Page Loaded');
+    console.log('📋 Run the tests above to verify DOM method overrides are working');
+  </script>
+</body>
+</html>

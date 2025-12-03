@@ -566,6 +566,106 @@ function createScriptsRoutes(db, logAudit, authenticate, requireRole, rateLimite
   });
 
   /**
+   * POST /api/scripts/admin/bulk-delete
+   * Bulk delete multiple scripts
+   */
+  router.post('/bulk-delete', authenticate, async (req, res) => {
+    try {
+      const { scriptIds, deletionReason } = req.body;
+
+      if (!Array.isArray(scriptIds) || scriptIds.length === 0) {
+        return res.status(400).json({ error: 'scriptIds must be a non-empty array' });
+      }
+
+      if (scriptIds.length > 100) {
+        return res.status(400).json({ error: 'Cannot delete more than 100 scripts at once' });
+      }
+
+      // Validate all IDs are integers
+      const invalidIds = scriptIds.filter(id => !Number.isInteger(id) || id <= 0);
+      if (invalidIds.length > 0) {
+        return res.status(400).json({ error: 'All script IDs must be positive integers' });
+      }
+
+      if (!deletionReason || deletionReason.trim().length === 0) {
+        return res.status(400).json({ error: 'Deletion reason is required' });
+      }
+
+      // Use transactions for PostgreSQL (ensures atomicity)
+      // Skip for SQLite (single-threaded, transaction support is limited)
+      const useTransaction = db.isPostgreSQL();
+      let transaction = null;
+
+      try {
+        if (useTransaction) {
+          transaction = await db.beginTransaction();
+        }
+
+        let successCount = 0;
+        let failedIds = [];
+
+        for (const id of scriptIds) {
+          try {
+            const result = await db.query(
+              'DELETE FROM scripts WHERE id = ?',
+              [id]
+            );
+
+            if (result.changes > 0) {
+              successCount++;
+            } else {
+              failedIds.push(id);
+            }
+          } catch (error) {
+            console.error(`[Admin] Failed to delete script ${id}:`, error.message);
+            failedIds.push(id);
+          }
+        }
+
+        if (useTransaction && transaction) {
+          await transaction.commit();
+        }
+
+        console.log(`[Admin] Bulk deleted ${successCount} scripts by ${req.admin.username}`);
+
+        // Log to audit trail
+        if (successCount > 0) {
+          await logAudit({
+            req,
+            admin: req.admin,
+            actionType: 'scripts_bulk_deleted',
+            entityType: 'script',
+            entityId: scriptIds,
+            actionDescription: `Bulk deleted ${successCount} script(s)`,
+            actionReason: deletionReason,
+            previousValue: null,
+            newValue: 'deleted'
+          });
+        }
+
+        res.json({
+          success: true,
+          message: `Successfully deleted ${successCount} out of ${scriptIds.length} scripts`,
+          deleted: successCount,
+          failed: failedIds.length,
+          failedIds
+        });
+
+      } catch (error) {
+        if (useTransaction && transaction) {
+          await transaction.rollback();
+        }
+        console.error('[Admin] Bulk delete error:', error);
+        throw error;
+      }
+
+    } catch (error) {
+      console.error('[Admin] Bulk delete error:', error.message);
+      res.status(500).json({ error: 'Failed to bulk delete scripts' });
+    }
+  });
+
+  /**
    * GET /api/scripts/admin/:id
    * Get script details with audit log
    */

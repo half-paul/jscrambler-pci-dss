@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Payment Page - PCI DSS 6.4.3 Compliant</title>
+
+  <!--
+    CRITICAL: Script Integrity Monitor must load FIRST
+    This ensures all subsequent scripts are monitored
+  -->
+
+  <!-- 1. Load configuration FIRST -->
+  <script src="script-integrity-config.js"></script>
+
+  <!-- 2. Load monitor SECOND (before any other scripts) -->
+  <script src="script-integrity-monitor.js"></script>
+
+  <!-- Load HTTP Header Monitor -->
+  <script src="http-header-monitor.js"></script>
+
+  <!--
+    Now load other scripts - they will all be monitored
+    Include SRI attributes for external scripts (best practice)
+  -->
+
+  <!-- Example: jQuery from CDN with SRI -->
+ 
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 600px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 5px;
+      color: #555;
+      font-weight: 500;
+    }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 14px;
+    }
+    button {
+      width: 100%;
+      padding: 12px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0056b3;
+    }
+    .security-notice {
+      margin-top: 20px;
+      padding: 15px;
+      background: #e8f5e9;
+      border-left: 4px solid #4caf50;
+      border-radius: 4px;
+    }
+    .security-notice h3 {
+      margin: 0 0 10px 0;
+      color: #2e7d32;
+      font-size: 14px;
+    }
+    .security-notice p {
+      margin: 0;
+      color: #555;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 10px;
+      background: #f8f9fa;
+      border-radius: 4px;
+      font-size: 12px;
+      font-family: monospace;
+    }
+    .status-item {
+      margin: 5px 0;
+      padding: 5px;
+      border-left: 3px solid #007bff;
+      background: white;
+    }
+    .status-item.ok {
+      border-left-color: #4caf50;
+    }
+    .status-item.warning {
+      border-left-color: #ff9800;
+    }
+    .status-item.error {
+      border-left-color: #f44336;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Secure Payment</h1>
+
+    <form id="paymentForm">
+      <div class="form-group">
+        <label for="cardNumber">Card Number</label>
+        <input type="text" id="cardNumber" placeholder="1234 5678 9012 3456" required>
+      </div>
+
+      <div class="form-group">
+        <label for="cardName">Cardholder Name</label>
+        <input type="text" id="cardName" placeholder="John Doe" required>
+      </div>
+
+      <div class="form-group">
+        <label for="expiryDate">Expiry Date</label>
+        <input type="text" id="expiryDate" placeholder="MM/YY" required>
+      </div>
+
+      <div class="form-group">
+        <label for="cvv">CVV</label>
+        <input type="text" id="cvv" placeholder="123" maxlength="4" required>
+      </div>
+
+      <button type="submit">Process Payment</button>
+    </form>
+
+    <div class="security-notice">
+      <h3>Security Notice</h3>
+      <p>
+        This page is protected by Script Integrity Monitoring (PCI DSS 6.4.3 compliant).
+        All scripts are verified for integrity using cryptographic hashes.
+        Any unauthorized scripts will be detected and blocked.
+      </p>
+    </div>
+
+    <div class="status" id="statusPanel">
+      <strong>Script Integrity Status:</strong>
+      <div id="statusContent">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Inline script: Payment form handler -->
+  <script>
+    // Payment form handling
+    document.getElementById('paymentForm').addEventListener('submit', function(e) {
+      e.preventDefault();
+
+      // Validate inputs
+      const cardNumber = document.getElementById('cardNumber').value;
+      const cardName = document.getElementById('cardName').value;
+      const expiryDate = document.getElementById('expiryDate').value;
+      const cvv = document.getElementById('cvv').value;
+
+      if (!cardNumber || !cardName || !expiryDate || !cvv) {
+        alert('Please fill in all fields');
+        return;
+      }
+
+      // In production, send to payment processor
+      console.log('Processing payment...');
+      alert('Payment processing (demo mode)');
+
+      // Generate compliance report
+      const report = window.ScriptIntegrityMonitor.generateReport();
+      console.log('Payment processed with script integrity verification:', report);
+      console.log('Console log added again:', report);
+    });
+  </script>
+
+  <!-- Inline script: Status display -->
+  <script>
+    // Retry mechanism for when monitor isn't ready yet
+    let statusDisplayAttempts = 0;
+    const MAX_STATUS_DISPLAY_ATTEMPTS = 10;
+
+    function displayScriptIntegrityStatus() {
+      try {
+        const statusContent = document.getElementById('statusContent');
+        
+        if (!statusContent) {
+          console.error('[Status Display] statusContent element not found');
+          return;
+        }
+
+        // Check if monitor is available
+        if (!window.ScriptIntegrityMonitor) {
+          statusDisplayAttempts++;
+          if (statusDisplayAttempts < MAX_STATUS_DISPLAY_ATTEMPTS) {
+            // Retry after a short delay
+            setTimeout(function() {
+              displayScriptIntegrityStatus();
+            }, 500);
+            statusContent.innerHTML = '<div class="status-item warning">Waiting for Script Integrity Monitor... (attempt ' + statusDisplayAttempts + ')</div>';
+            return;
+          } else {
+            statusContent.innerHTML = '<div class="status-item error">Script Integrity Monitor not loaded after ' + MAX_STATUS_DISPLAY_ATTEMPTS + ' attempts. Check console for errors.</div>';
+            console.error('[Status Display] Script Integrity Monitor not available');
+            return;
+          }
+        }
+
+        // Check if monitor methods are available
+        if (typeof window.ScriptIntegrityMonitor.getSummary !== 'function') {
+          statusContent.innerHTML = '<div class="status-item error">Script Integrity Monitor API not available</div>';
+          console.error('[Status Display] Monitor API methods not available');
+          return;
+        }
+
+        const summary = window.ScriptIntegrityMonitor.getSummary();
+        // Get all violations (including pending/new scripts) for filtering
+        const allViolations = window.ScriptIntegrityMonitor.getViolations(true);
+        // Only get actual security violations (exclude PENDING_APPROVAL and NEW_SCRIPT)
+        const violations = allViolations.filter(v => 
+          v.violationType !== 'PENDING_APPROVAL' && v.violationType !== 'NEW_SCRIPT'
+        );
+
+        // Check for blocked scripts
+        const blockedScripts = allViolations.filter(v => v.violationType === 'REJECTED_BY_ADMIN');
+
+        let html = '';
+
+        // Overall status - use unauthorizedScripts from summary which correctly filters out pending/new scripts
+        if (summary.unauthorizedScripts === 0) {
+          html += '<div class="status-item ok">✓ All scripts authorized (' + summary.totalScripts + ' scripts)</div>';
+        } else {
+          html += '<div class="status-item error">✗ ' + summary.unauthorizedScripts + ' unauthorized script(s) detected</div>';
+        }
+
+        // Show blocked scripts prominently if any exist
+        if (blockedScripts.length > 0) {
+          html += '<div class="status-item error">🚫 ' + blockedScripts.length + ' script(s) BLOCKED by administrator</div>';
+        }
+
+        // Script counts
+        html += '<div class="status-item ok">• External scripts: ' + summary.externalScripts + '</div>';
+        html += '<div class="status-item ok">• Inline scripts: ' + summary.inlineScripts + '</div>';
+        html += '<div class="status-item ok">• Authorized: ' + summary.authorizedScripts + '</div>';
+
+        if (summary.unauthorizedScripts > 0) {
+          html += '<div class="status-item error">• Unauthorized: ' + summary.unauthorizedScripts + '</div>';
+        }
+
+        // Monitoring info
+        const config = window.SCRIPT_INTEGRITY_CONFIG;
+        if (config) {
+          html += '<div class="status-item ok">• Mode: ' + config.mode + '</div>';
+          html += '<div class="status-item ok">• Algorithm: ' + config.hashAlgorithm + '</div>';
+        }
+
+        // Show blocked script details if any
+        if (blockedScripts.length > 0) {
+          html += '<div class="status-item error" style="margin-top: 10px;"><strong>Blocked Scripts:</strong></div>';
+          blockedScripts.forEach(function(v) {
+            const scriptName = v.src || v.scriptId || 'inline script';
+            html += '<div class="status-item error" style="margin-left: 20px; font-size: 11px;">❌ ' + scriptName + '</div>';
+          });
+        }
+
+        statusContent.innerHTML = html;
+
+        // Log detailed report to console
+        console.log('=== Script Integrity Report ===');
+        console.log('Summary:', summary);
+        console.log('Inventory:', window.ScriptIntegrityMonitor.getInventory());
+        if (violations.length > 0) {
+          console.error('Security Violations:', violations);
+        }
+        // Also show pending/new scripts separately (for informational purposes)
+        const pendingScripts = allViolations.filter(v => 
+          v.violationType === 'PENDING_APPROVAL' || v.violationType === 'NEW_SCRIPT'
+        );
+        if (pendingScripts.length > 0) {
+          console.info('Pending/New Scripts (not security violations):', pendingScripts);
+        }
+        console.log('Full Report:', window.ScriptIntegrityMonitor.generateReport());
+      } catch (error) {
+        const statusContent = document.getElementById('statusContent');
+        if (statusContent) {
+          statusContent.innerHTML = '<div class="status-item error">Error displaying status: ' + error.message + '</div>';
+        }
+        console.error('[Status Display] Error:', error);
+      }
+    }
+
+    // Wait for page to fully load
+    window.addEventListener('load', function() {
+      // Give monitor time to process all scripts (async operations)
+      setTimeout(function() {
+        displayScriptIntegrityStatus();
+      }, 1500);
+    });
+
+    // Also try when DOM is ready (in case load event already fired)
+    if (document.readyState === 'complete' || document.readyState === 'interactive') {
+      setTimeout(function() {
+        displayScriptIntegrityStatus();
+      }, 1500);
+    }
+
+    // Test: Add a button to dynamically load a script (for testing)
+    function addTestScript() {
+      const script = document.createElement('script');
+      script.textContent = 'console.log("Dynamically added test script");';
+      document.body.appendChild(script);
+
+      setTimeout(function() {
+        displayScriptIntegrityStatus();
+      }, 500);
+    }
+
+    // Expose for testing
+    window.testDynamicScript = addTestScript;
+  </script>
+
+  <!-- Example: Test dynamic script loading -->
+  <!-- Uncomment to test violation detection:
+  <script>
+    setTimeout(function() {
+      // This will be detected as unauthorized if not in baseline
+      const script = document.createElement('script');
+      script.src = 'https://example.com/unauthorized-script.js';
+      document.head.appendChild(script);
+    }, 2000);
+  </script>
+  -->
+
+
+   <script
+    src="https://code.jquery.com/jquery-3.7.1.min.js"
+    integrity="sha384-1H217gwSVyLSIfaLxHbE7dRb3v4mYCKbpQvzx0cegeju1MVsGrX5xXxAvs/HgeFs"
+    crossorigin="anonymous"></script>
+
+  <script src="script-test-block.js"></script>
+  
+
+</body>
+</html>

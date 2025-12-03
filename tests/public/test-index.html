@@ -1,0 +1,369 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Pages Index - Script Integrity Monitor</title>
+
+    <!-- Test Page Navigation -->
+    <script src="test-navigation.js"></script>
+
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #2c3e50;
+            padding: 20px;
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding-top: 20px;
+        }
+        .hero {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        h1 {
+            color: #2c3e50;
+            font-size: 36px;
+            margin-bottom: 10px;
+        }
+        .subtitle {
+            color: #7f8c8d;
+            font-size: 18px;
+            margin-bottom: 20px;
+        }
+        .badge {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            margin-top: 10px;
+        }
+        .section {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        h2 {
+            color: #2c3e50;
+            font-size: 24px;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+        .card {
+            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 20px;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            text-decoration: none;
+            color: inherit;
+            display: block;
+        }
+        .card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.3);
+            border-color: #667eea;
+        }
+        .card-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .card-icon {
+            font-size: 24px;
+        }
+        .card-description {
+            font-size: 14px;
+            color: #7f8c8d;
+            line-height: 1.5;
+        }
+        .card-category {
+            display: inline-block;
+            background: #e8f0fe;
+            color: #1967d2;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-top: 10px;
+        }
+        .card-category.pci {
+            background: #fce8e6;
+            color: #c5221f;
+        }
+        .card-category.auth {
+            background: #e6f4ea;
+            color: #137333;
+        }
+        .admin-card {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            grid-column: span 2;
+        }
+        .admin-card:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 12px 28px rgba(102, 126, 234, 0.5);
+        }
+        .admin-card .card-title {
+            color: white;
+            font-size: 22px;
+        }
+        .admin-card .card-description {
+            color: rgba(255, 255, 255, 0.9);
+            font-size: 16px;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .stat-number {
+            font-size: 36px;
+            font-weight: 700;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        .stat-label {
+            font-size: 14px;
+            color: #7f8c8d;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        @media (max-width: 768px) {
+            .admin-card {
+                grid-column: span 1;
+            }
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="hero">
+            <h1>🔒 Script Integrity Monitor</h1>
+            <p class="subtitle">PCI DSS v4.0 Compliance Testing Suite</p>
+            <div class="badge">PCI DSS 6.4.3 & 11.6.1 Compliant</div>
+        </div>
+
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-number">8</div>
+                <div class="stat-label">Test Pages</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">3</div>
+                <div class="stat-label">Test Categories</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-number">100%</div>
+                <div class="stat-label">Coverage</div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🎯 Quick Access</h2>
+            <div class="grid">
+                <a href="/admin-panel.html" class="card admin-card">
+                    <div class="card-title">
+                        <span class="card-icon">⚙️</span>
+                        Admin Panel
+                    </div>
+                    <div class="card-description">
+                        Complete dashboard for script approval, violation management, user administration, and PCI DSS compliance monitoring
+                    </div>
+                </a>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🧪 Script Integrity Tests (PCI DSS 6.4.3)</h2>
+            <div class="grid">
+                <a href="/test-script-integrity.html" class="card">
+                    <div class="card-title">
+                        <span class="card-icon">🔍</span>
+                        Script Integrity Test
+                    </div>
+                    <div class="card-description">
+                        Comprehensive test suite for script integrity monitoring including hash verification, violation detection, and baseline comparison
+                    </div>
+                    <span class="card-category">Core Testing</span>
+                </a>
+
+                <a href="/test-auto-registration.html" class="card">
+                    <div class="card-title">
+                        <span class="card-icon">📝</span>
+                        Auto Registration
+                    </div>
+                    <div class="card-description">
+                        Test automatic script detection and server-side registration workflow with real-time approval status polling
+                    </div>
+                    <span class="card-category">Automation</span>
+                </a>
+
+                <a href="/test-script-blocking.html" class="card">
+                    <div class="card-title">
+                        <span class="card-icon">🚫</span>
+                        Script Blocking
+                    </div>
+                    <div class="card-description">
+                        Verify script blocking functionality in enforce mode including rejected scripts and unauthorized modifications
+                    </div>
+                    <span class="card-category">Security</span>
+                </a>
+
+                <a href="/test-dynamic-injection.html" class="card">
+                    <div class="card-title">
+                        <span class="card-icon">💉</span>
+                        Dynamic Injection
+                    </div>
+                    <div class="card-description">
+                        Test protection against dynamic script injection attacks using DOM method interception and MutationObserver
+                    </div>
+                    <span class="card-category">Security</span>
+                </a>
+
+                <a href="/test-variations.html" class="card">
+                    <div class="card-title">
+                        <span class="card-icon">🔄</span>
+                        Test Variations
+                    </div>
+                    <div class="card-description">
+                        Explore various script integrity scenarios including inline scripts, external scripts, and different hash algorithms
+                    </div>
+                    <span class="card-category">Edge Cases</span>
+                </a>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🌐 HTTP Header Monitoring (PCI DSS 11.6.1)</h2>
+            <div class="grid">
+                <a href="/test-header-monitor.html" class="card">
+                    <div class="card-title">
+                        <span class="card-icon">📡</span>
+                        HTTP Header Monitor
+                    </div>
+                    <div class="card-description">
+                        Live monitoring of HTTP security headers with baseline capture and real-time tampering detection
+                    </div>
+                    <span class="card-category pci">PCI DSS 11.6.1</span>
+                </a>
+
+                <a href="/test-header-tampering.html" class="card">
+                    <div class="card-title">
+                        <span class="card-icon">⚠️</span>
+                        Header Tampering
+                    </div>
+                    <div class="card-description">
+                        Interactive 5-step test to simulate and detect unauthorized HTTP header modifications and removals
+                    </div>
+                    <span class="card-category pci">PCI DSS 11.6.1</span>
+                </a>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>🔐 Authentication & UX</h2>
+            <div class="grid">
+                <a href="/test-enter-key.html" class="card">
+                    <div class="card-title">
+                        <span class="card-icon">⌨️</span>
+                        Enter Key Support
+                    </div>
+                    <div class="card-description">
+                        Verify keyboard shortcuts for authentication forms including login, MFA verification, and backup codes
+                    </div>
+                    <span class="card-category auth">UX Testing</span>
+                </a>
+            </div>
+        </div>
+
+        <div class="section">
+            <h2>📚 Documentation & Resources</h2>
+            <div style="padding: 15px; background: #f8f9fa; border-radius: 6px;">
+                <ul style="list-style: none; padding: 0;">
+                    <li style="margin-bottom: 10px;">
+                        <strong>📖 README.md</strong> - Complete feature documentation and setup guide
+                    </li>
+                    <li style="margin-bottom: 10px;">
+                        <strong>📋 CLAUDE.md</strong> - Project overview and development guidelines
+                    </li>
+                    <li style="margin-bottom: 10px;">
+                        <strong>🔄 APPROVAL-WORKFLOW.md</strong> - Detailed workflow and API reference
+                    </li>
+                    <li style="margin-bottom: 10px;">
+                        <strong>🚀 SETUP.md</strong> - Quick start guide and troubleshooting
+                    </li>
+                    <li style="margin-bottom: 10px;">
+                        <strong>🗄️ database-schema.sql</strong> - Complete database schema with comments
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div style="text-align: center; padding: 20px; color: white; opacity: 0.8;">
+            <p>Script Integrity Monitor v1.0.0 | PCI DSS v4.0 Compliant</p>
+            <p style="font-size: 12px; margin-top: 5px;">Use the navigation bar above to quickly jump between test pages</p>
+        </div>
+    </div>
+
+    <script>
+        // Dynamically update all links based on current URL structure
+        (function() {
+            const needsPublicPrefix = window.location.pathname.includes('/public/');
+            if (needsPublicPrefix) {
+                // Update all links that start with / but not /public/
+                document.querySelectorAll('a[href^="/"]').forEach(link => {
+                    const href = link.getAttribute('href');
+                    if (!href.startsWith('/public/')) {
+                        link.setAttribute('href', '/public' + href);
+                    }
+                });
+            }
+        })();
+    </script>
+</body>
+</html>

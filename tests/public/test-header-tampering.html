@@ -1,0 +1,547 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HTTP Header Tampering Test - PCI DSS 11.6.1</title>
+
+    <!-- Test Page Navigation -->
+    <script src="test-navigation.js"></script>
+
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f7fa;
+            color: #2c3e50;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container { max-width: 1000px; margin: 0 auto; }
+        header {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h1 { color: #2c3e50; margin-bottom: 5px; }
+        .subtitle { color: #7f8c8d; font-size: 14px; }
+        .card {
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        h2 { color: #2c3e50; margin-bottom: 15px; font-size: 18px; }
+        h3 { color: #34495e; margin: 15px 0 10px; font-size: 16px; }
+        button {
+            background: #3498db;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+            margin-bottom: 10px;
+        }
+        button:hover { background: #2980b9; }
+        button.success { background: #27ae60; }
+        button.success:hover { background: #229954; }
+        button.danger { background: #e74c3c; }
+        button.danger:hover { background: #c0392b; }
+        button.warning { background: #f39c12; }
+        button.warning:hover { background: #e67e22; }
+        .status {
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+        .status.info { background: #d1ecf1; color: #0c5460; }
+        .status.success { background: #d4edda; color: #155724; }
+        .status.warning { background: #fff3cd; color: #856404; }
+        .status.error { background: #f8d7da; color: #721c24; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ecf0f1; }
+        th { background: #f8f9fa; font-weight: 600; }
+        code {
+            background: #f8f9fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+        }
+        .log {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        .log .info { color: #4fc3f7; }
+        .log .warn { color: #ffb74d; }
+        .log .error { color: #ef5350; }
+        .log .success { color: #81c784; }
+        .step {
+            background: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            margin: 10px 0;
+        }
+        .step.active { border-left-color: #27ae60; background: #e8f6e9; }
+        .step.done { border-left-color: #95a5a6; opacity: 0.7; }
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .badge.critical { background: #e74c3c; color: white; }
+        .badge.high { background: #f39c12; color: white; }
+    </style>
+
+    <!-- Load configuration FIRST -->
+    <script src="script-integrity-config.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>HTTP Header Tampering Detection Test</h1>
+            <p class="subtitle">Simulate and detect unauthorized HTTP header modifications (PCI DSS 11.6.1)</p>
+        </header>
+
+        <div class="card">
+            <h2>Test Overview</h2>
+            <p>This test demonstrates how the HTTP Header Monitor detects when security headers are tampered with.
+               We'll simulate tampering by modifying the monitor's baseline and then triggering a check.</p>
+
+            <div id="testStatus" class="status info">
+                Ready to begin test. Click "Start Test" to proceed.
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Test Steps</h2>
+
+            <div id="step1" class="step">
+                <strong>Step 1: Initialize Monitor</strong>
+                <p>Create HTTP Header Monitor and capture baseline headers.</p>
+                <button onclick="initializeMonitor()">Initialize Monitor</button>
+                <div id="step1Result"></div>
+            </div>
+
+            <div id="step2" class="step">
+                <strong>Step 2: View Baseline Headers</strong>
+                <p>Display the captured baseline headers.</p>
+                <button onclick="showBaseline()">Show Baseline</button>
+                <div id="step2Result"></div>
+            </div>
+
+            <div id="step3" class="step">
+                <strong>Step 3: Simulate Header Tampering</strong>
+                <p>Modify the baseline to simulate a header being removed or changed.</p>
+                <button onclick="simulateRemoval()" class="warning">Simulate Header REMOVED</button>
+                <button onclick="simulateModification()" class="warning">Simulate Header MODIFIED</button>
+                <div id="step3Result"></div>
+            </div>
+
+            <div id="step4" class="step">
+                <strong>Step 4: Trigger Detection</strong>
+                <p>Run header check to detect the tampering.</p>
+                <button onclick="triggerDetection()" class="danger">Check Headers Now</button>
+                <div id="step4Result"></div>
+            </div>
+
+            <div id="step5" class="step">
+                <strong>Step 5: View Violations</strong>
+                <p>Display all detected violations.</p>
+                <button onclick="showViolations()">Show Violations</button>
+                <div id="step5Result"></div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Actions</h2>
+            <button onclick="resetTest()" class="secondary" style="background: #95a5a6;">Reset Test</button>
+            <button onclick="clearLog()" class="secondary" style="background: #95a5a6;">Clear Log</button>
+        </div>
+
+        <div class="card">
+            <h2>Activity Log</h2>
+            <div id="log" class="log">Test log initialized...\n</div>
+        </div>
+    </div>
+
+    <!-- Load HTTP Header Monitor -->
+    <script src="http-header-monitor.js"></script>
+
+    <script>
+        let monitor = null;
+        let originalBaseline = null;
+        const logEl = document.getElementById('log');
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const prefix = { info: '[INFO]', warn: '[WARN]', error: '[ERROR]', success: '[OK]' }[type] || '[LOG]';
+            logEl.innerHTML += `<span class="${type}">${timestamp} ${prefix}</span> ${message}\n`;
+            logEl.scrollTop = logEl.scrollHeight;
+        }
+
+        function clearLog() {
+            logEl.innerHTML = '';
+            log('Log cleared', 'info');
+        }
+
+        function updateStatus(message, type = 'info') {
+            const el = document.getElementById('testStatus');
+            el.className = `status ${type}`;
+            el.innerHTML = message;
+        }
+
+        function markStep(stepNum, status) {
+            const step = document.getElementById(`step${stepNum}`);
+            step.className = `step ${status}`;
+        }
+
+        // Step 1: Initialize Monitor
+        async function initializeMonitor() {
+            log('=== STEP 1: Initializing Monitor ===', 'info');
+
+            try {
+                // Create monitor with custom config (no server reporting for this test)
+                monitor = new HTTPHeaderMonitor({
+                    serverBaseUrl: window.location.origin,
+                    checkInterval: 30000,
+                    debug: true
+                });
+
+                // Wait for initialization
+                await new Promise(r => setTimeout(r, 1000));
+
+                const status = monitor.getStatus();
+
+                // Store original baseline for reset
+                originalBaseline = new Map(monitor.baselineHeaders);
+
+                document.getElementById('step1Result').innerHTML = `
+                    <div class="status success">
+                        <strong>Monitor Initialized Successfully</strong><br>
+                        Session: ${status.sessionId}<br>
+                        Baseline Headers: ${status.baselineHeaderCount}<br>
+                        Monitoring: ${status.monitoring}
+                    </div>
+                `;
+
+                log(`Monitor initialized with ${status.baselineHeaderCount} baseline headers`, 'success');
+                markStep(1, 'done');
+                updateStatus('Monitor initialized. Proceed to Step 2.', 'success');
+
+            } catch (error) {
+                log(`Initialization failed: ${error.message}`, 'error');
+                document.getElementById('step1Result').innerHTML = `
+                    <div class="status error">Error: ${error.message}</div>
+                `;
+            }
+        }
+
+        // Step 2: Show Baseline
+        function showBaseline() {
+            log('=== STEP 2: Showing Baseline Headers ===', 'info');
+
+            if (!monitor) {
+                log('Monitor not initialized. Complete Step 1 first.', 'error');
+                return;
+            }
+
+            const baseline = monitor.getBaselineHeaders();
+            const criticalHeaders = monitor.config.criticalHeaders;
+
+            let tableHtml = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Header Name</th>
+                            <th>Baseline Value</th>
+                            <th>Critical?</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            // Show critical headers first
+            for (const header of criticalHeaders) {
+                const value = baseline[header];
+                const isCritical = criticalHeaders.includes(header);
+                tableHtml += `
+                    <tr style="background: ${value ? '#e8f6e9' : '#ffeaea'}">
+                        <td><code>${header}</code></td>
+                        <td style="font-size: 11px; word-break: break-all;">${value || '<em style="color:#e74c3c">NOT PRESENT</em>'}</td>
+                        <td>${isCritical ? '<span class="badge critical">CRITICAL</span>' : ''}</td>
+                    </tr>
+                `;
+            }
+
+            tableHtml += '</tbody></table>';
+
+            document.getElementById('step2Result').innerHTML = `
+                <div style="margin-top: 10px;">
+                    <strong>Critical Headers Being Monitored:</strong>
+                    ${tableHtml}
+                </div>
+            `;
+
+            log(`Displayed ${Object.keys(baseline).length} baseline headers`, 'success');
+            markStep(2, 'done');
+        }
+
+        // Step 3: Simulate Tampering
+        function simulateRemoval() {
+            log('=== STEP 3: Simulating Header REMOVAL ===', 'warn');
+
+            if (!monitor) {
+                log('Monitor not initialized. Complete Step 1 first.', 'error');
+                return;
+            }
+
+            // Find a header that exists in baseline
+            const baseline = monitor.baselineHeaders;
+            let headerToRemove = null;
+
+            for (const header of monitor.config.criticalHeaders) {
+                if (baseline.has(header)) {
+                    headerToRemove = header;
+                    break;
+                }
+            }
+
+            if (!headerToRemove) {
+                // Use any header if no critical headers present
+                headerToRemove = baseline.keys().next().value;
+            }
+
+            if (!headerToRemove) {
+                log('No headers in baseline to remove!', 'error');
+                return;
+            }
+
+            // Store the value before "removing" it
+            const originalValue = baseline.get(headerToRemove);
+
+            // Simulate removal by adding a fake header to baseline that won't be in current
+            // Actually, we need to do the opposite - add to baseline so it appears "removed" when we check
+            monitor.baselineHeaders.set('x-fake-security-header', 'should-be-present');
+
+            document.getElementById('step3Result').innerHTML = `
+                <div class="status warning">
+                    <strong>Tampering Simulated!</strong><br>
+                    Added fake header <code>x-fake-security-header</code> to baseline.<br>
+                    When we check headers, this will appear as REMOVED because<br>
+                    the current response won't have this header.<br><br>
+                    <em>This simulates an attacker removing a security header.</em>
+                </div>
+            `;
+
+            log(`Simulated removal of header: x-fake-security-header`, 'warn');
+            log(`The next header check will detect this as a violation`, 'info');
+            markStep(3, 'active');
+        }
+
+        function simulateModification() {
+            log('=== STEP 3: Simulating Header MODIFICATION ===', 'warn');
+
+            if (!monitor) {
+                log('Monitor not initialized. Complete Step 1 first.', 'error');
+                return;
+            }
+
+            const baseline = monitor.baselineHeaders;
+
+            // Find a header that exists
+            let headerToModify = null;
+            for (const header of monitor.config.criticalHeaders) {
+                if (baseline.has(header)) {
+                    headerToModify = header;
+                    break;
+                }
+            }
+
+            if (!headerToModify) {
+                headerToModify = baseline.keys().next().value;
+            }
+
+            if (!headerToModify) {
+                log('No headers in baseline to modify!', 'error');
+                return;
+            }
+
+            const originalValue = baseline.get(headerToModify);
+
+            // Change the baseline value so it won't match current
+            monitor.baselineHeaders.set(headerToModify, 'TAMPERED-VALUE-12345');
+
+            document.getElementById('step3Result').innerHTML = `
+                <div class="status warning">
+                    <strong>Tampering Simulated!</strong><br>
+                    Modified baseline value for <code>${headerToModify}</code><br>
+                    Original: <code>${originalValue?.substring(0, 50)}...</code><br>
+                    Fake baseline: <code>TAMPERED-VALUE-12345</code><br><br>
+                    When we check headers, the current value won't match,<br>
+                    triggering a HEADER_MODIFIED violation.<br><br>
+                    <em>This simulates an attacker weakening a security policy.</em>
+                </div>
+            `;
+
+            log(`Simulated modification of header: ${headerToModify}`, 'warn');
+            log(`Original: ${originalValue?.substring(0, 50)}...`, 'info');
+            log(`Fake baseline: TAMPERED-VALUE-12345`, 'info');
+            markStep(3, 'active');
+        }
+
+        // Step 4: Trigger Detection
+        async function triggerDetection() {
+            log('=== STEP 4: Triggering Header Check ===', 'info');
+
+            if (!monitor) {
+                log('Monitor not initialized. Complete Step 1 first.', 'error');
+                return;
+            }
+
+            try {
+                log('Fetching current headers...', 'info');
+                await monitor.captureHeaders();
+
+                log('Comparing against baseline...', 'info');
+                const violations = monitor.detectViolations();
+
+                if (violations.length > 0) {
+                    document.getElementById('step4Result').innerHTML = `
+                        <div class="status error">
+                            <strong>TAMPERING DETECTED!</strong><br>
+                            Found ${violations.length} violation(s).<br>
+                            Proceed to Step 5 to see details.
+                        </div>
+                    `;
+                    log(`ALERT: ${violations.length} violation(s) detected!`, 'error');
+                    violations.forEach(v => {
+                        log(`  - ${v.type}: ${v.headerName} (${v.severity})`, 'error');
+                    });
+                    updateStatus(`ALERT: ${violations.length} header tampering violation(s) detected!`, 'error');
+                } else {
+                    document.getElementById('step4Result').innerHTML = `
+                        <div class="status success">
+                            No violations detected. Headers match baseline.
+                        </div>
+                    `;
+                    log('No violations detected', 'success');
+                }
+
+                markStep(4, 'done');
+
+            } catch (error) {
+                log(`Detection failed: ${error.message}`, 'error');
+            }
+        }
+
+        // Step 5: Show Violations
+        function showViolations() {
+            log('=== STEP 5: Displaying Violations ===', 'info');
+
+            if (!monitor) {
+                log('Monitor not initialized. Complete Step 1 first.', 'error');
+                return;
+            }
+
+            const violations = monitor.getViolations();
+
+            if (violations.length === 0) {
+                document.getElementById('step5Result').innerHTML = `
+                    <div class="status info">
+                        No violations recorded. Try simulating tampering first (Step 3).
+                    </div>
+                `;
+                log('No violations to display', 'info');
+                return;
+            }
+
+            let tableHtml = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Type</th>
+                            <th>Header</th>
+                            <th>Expected</th>
+                            <th>Actual</th>
+                            <th>Severity</th>
+                            <th>Time</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            violations.forEach(v => {
+                tableHtml += `
+                    <tr>
+                        <td><span class="badge ${v.severity === 'CRITICAL' ? 'critical' : 'high'}">${v.type}</span></td>
+                        <td><code>${v.headerName}</code></td>
+                        <td style="font-size: 11px; max-width: 150px; overflow: hidden; text-overflow: ellipsis;">
+                            ${v.expectedValue || '<em>none</em>'}
+                        </td>
+                        <td style="font-size: 11px; max-width: 150px; overflow: hidden; text-overflow: ellipsis;">
+                            ${v.actualValue || '<em>none</em>'}
+                        </td>
+                        <td><span class="badge ${v.severity === 'CRITICAL' ? 'critical' : 'high'}">${v.severity}</span></td>
+                        <td style="font-size: 11px;">${new Date(v.timestamp).toLocaleTimeString()}</td>
+                    </tr>
+                `;
+            });
+
+            tableHtml += '</tbody></table>';
+
+            document.getElementById('step5Result').innerHTML = `
+                <div style="margin-top: 10px;">
+                    <strong style="color: #e74c3c;">Detected Violations (${violations.length}):</strong>
+                    ${tableHtml}
+                    <p style="margin-top: 15px; color: #7f8c8d; font-size: 13px;">
+                        These violations would be reported to the server for admin review.
+                        In production, alerts would be sent to the security team.
+                    </p>
+                </div>
+            `;
+
+            log(`Displayed ${violations.length} violations`, 'success');
+            markStep(5, 'done');
+        }
+
+        // Reset Test
+        function resetTest() {
+            log('=== Resetting Test ===', 'info');
+
+            if (monitor && originalBaseline) {
+                monitor.baselineHeaders = new Map(originalBaseline);
+                monitor.violations = [];
+                log('Restored original baseline and cleared violations', 'success');
+            }
+
+            // Reset UI
+            for (let i = 1; i <= 5; i++) {
+                markStep(i, '');
+                document.getElementById(`step${i}Result`).innerHTML = '';
+            }
+
+            updateStatus('Test reset. Click "Initialize Monitor" to begin again.', 'info');
+            log('Test reset complete', 'success');
+        }
+
+        // Auto-log on page load
+        log('Page loaded. Ready to test HTTP header tampering detection.', 'info');
+        log('Click "Initialize Monitor" to begin.', 'info');
+    </script>
+</body>
+</html>

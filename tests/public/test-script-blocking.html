@@ -5,13 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Script Blocking Test - Enforcement Mode</title>
 
-
-    <!-- Test Page Navigation -->
-    <script src="test-navigation.js"></script>
-
-    <!-- Load Script Integrity Monitor -->
-    <script src="script-integrity-config.js"></script>
-    <script src="script-integrity-monitor.js"></script>
+  <!-- Test Page Navigation -->
+  <script src="test-navigation.js"></script>
 
   <!-- Load configuration FIRST - set to ENFORCE mode -->
   <script>
@@ -46,7 +41,8 @@
     };
   </script>
 
-
+  <!-- Load monitor SECOND -->
+  <script src="script-integrity-monitor.js"></script>
 
   <style>
     body {
@@ -153,7 +149,7 @@
       <h3>📋 Testing Instructions</h3>
       <ol>
         <li><strong>Wait 5-10 seconds</strong> for scripts to register with the server</li>
-        <li><strong>Open Admin Panel</strong> in a new tab: <a href="/admin-panel-refactored.html" target="_blank">Admin Panel</a></li>
+        <li><strong>Open Admin Panel</strong> in a new tab: <a href="/admin-panel.html" target="_blank">Admin Panel</a></li>
         <li><strong>Go to "Pending Approvals"</strong> tab</li>
         <li><strong>Reject one or more scripts</strong> (click ❌ Reject button)</li>
         <li><strong>Come back to this page</strong> and wait 5-10 seconds</li>

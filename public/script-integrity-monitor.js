@@ -427,8 +427,11 @@
 
         // Check if URL matches any blocked pattern
         for (const blockedItem of this.blockedScripts) {
-          if (srcOrContent.includes(blockedItem) || blockedItem.includes(srcOrContent)) {
-            return true;
+          // Ensure blockedItem is a string before calling includes()
+          if (blockedItem && typeof blockedItem === 'string') {
+            if (srcOrContent.includes(blockedItem) || blockedItem.includes(srcOrContent)) {
+              return true;
+            }
           }
         }
       }
@@ -908,8 +911,13 @@
         if (!this.blockedScripts) {
           this.blockedScripts = new Set();
         }
-        this.blockedScripts.add(scriptInfo.hash);
-        this.blockedScripts.add(scriptInfo.src);
+        // Only add non-null/undefined values to the Set
+        if (scriptInfo.hash) {
+          this.blockedScripts.add(scriptInfo.hash);
+        }
+        if (scriptInfo.src) {
+          this.blockedScripts.add(scriptInfo.src);
+        }
 
         // Log the blocking
         console.error('[SIM] ❌ SCRIPT BLOCKED (enforcement mode):', {
@@ -1450,11 +1458,57 @@
   }
 
   /**
+   * Auto-load monitoring modules based on configuration
+   */
+  function autoLoadMonitoringModules(config) {
+    const modulesToLoad = [];
+
+    // Check if header monitoring should be enabled
+    if (config.monitorHeaders !== false) {
+      modulesToLoad.push({
+        name: 'HTTP Header Monitor',
+        src: 'http-header-monitor.js',
+        checkExisting: () => window.HttpHeaderMonitor !== undefined
+      });
+    }
+
+    // Check if network monitoring should be enabled
+    if (config.monitorNetworkRequests !== false) {
+      modulesToLoad.push({
+        name: 'Network Request Monitor',
+        src: 'network-request-monitor.js',
+        checkExisting: () => window.NetworkRequestMonitor !== undefined
+      });
+    }
+
+    // Load each module that isn't already loaded
+    modulesToLoad.forEach(module => {
+      if (!module.checkExisting()) {
+        const script = document.createElement('script');
+        script.src = module.src;
+        script.async = false; // Load in order
+        script.onload = () => {
+          console.log(`[SIM] Auto-loaded: ${module.name}`);
+        };
+        script.onerror = () => {
+          console.warn(`[SIM] Failed to auto-load: ${module.name}`);
+        };
+        document.head.appendChild(script);
+      } else {
+        console.log(`[SIM] ${module.name} already loaded, skipping auto-load`);
+      }
+    });
+  }
+
+  /**
    * Initialize the monitor with configuration
    */
   function initializeMonitor() {
     // Wait for configuration to be available
     const config = window.SCRIPT_INTEGRITY_CONFIG || {};
+
+    // Auto-load monitoring modules
+    autoLoadMonitoringModules(config);
 
     // Create monitor instance
     const monitor = new ScriptIntegrityMonitor(config);
@@ -1481,10 +1535,5 @@
   } else {
     initializeMonitor();
   }
-
-  // test integrity by adding this comment
-  // test integrity by adding this comment
-  // test integrity by adding this comment
-
 
 })();

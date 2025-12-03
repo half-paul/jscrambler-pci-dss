@@ -10,7 +10,7 @@
     "dev:legacy": "nodemon server-alert-handler.js",
     "db:init": "node scripts/init-database.js",
     "db:seed": "node scripts/seed-database.js",
-    "test": "echo \"Open test-script-integrity.html in a browser to run tests\"",
+    "test": "echo \"Open tests/public/test-script-integrity.html in a browser to run tests\"",
     "test:api": "mocha test-access-count.js",
     "generate-hashes": "node scripts/generate-hashes.js"
   },
