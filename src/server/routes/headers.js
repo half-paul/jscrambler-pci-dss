@@ -430,6 +430,112 @@ function createHeadersRoutes(db, logAudit, authenticate, rateLimiters) {
   });
 
   /**
+   * POST /api/admin/headers/violations/bulk-resolve
+   * Bulk resolve header violations
+   */
+  router.post('/violations/bulk-resolve', authenticate, async (req, res) => {
+    try {
+      const { ids, review_notes } = req.body;
+
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'Invalid or empty ids array' });
+      }
+
+      const placeholders = ids.map(() => '?').join(',');
+      await db.query(
+        `UPDATE header_violations
+         SET review_status = 'resolved',
+             reviewed_by = ?,
+             reviewed_at = CURRENT_TIMESTAMP,
+             review_notes = ?
+         WHERE id IN (${placeholders})`,
+        [req.admin.username, review_notes || 'Bulk resolved', ...ids]
+      );
+
+      await logAudit({
+        req,
+        admin: req.admin,
+        actionType: 'header_violations_bulk_resolved',
+        entityType: 'header_violation',
+        entityId: ids,
+        actionDescription: `Bulk resolved ${ids.length} header violation(s)`,
+        actionReason: review_notes
+      });
+
+      console.log(`[Admin] Bulk resolved ${ids.length} header violations by ${req.admin.username}`);
+      res.json({ success: true, resolved: ids.length });
+    } catch (error) {
+      console.error('[Admin] Bulk resolve header violations error:', error.message);
+
+      await logAudit({
+        req,
+        admin: req.admin,
+        actionType: 'header_violations_bulk_resolved',
+        entityType: 'header_violation',
+        entityId: req.body.ids,
+        actionDescription: `Failed to bulk resolve ${req.body.ids?.length || 0} header violation(s)`,
+        success: false,
+        errorMessage: error.message
+      });
+
+      res.status(500).json({ error: 'Failed to resolve header violations' });
+    }
+  });
+
+  /**
+   * POST /api/admin/headers/violations/bulk-false-positive
+   * Mark header violations as false positives
+   */
+  router.post('/violations/bulk-false-positive', authenticate, async (req, res) => {
+    try {
+      const { ids, review_notes } = req.body;
+
+      if (!Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: 'Invalid or empty ids array' });
+      }
+
+      const placeholders = ids.map(() => '?').join(',');
+      await db.query(
+        `UPDATE header_violations
+         SET review_status = 'false_positive',
+             reviewed_by = ?,
+             reviewed_at = CURRENT_TIMESTAMP,
+             review_notes = ?
+         WHERE id IN (${placeholders})`,
+        [req.admin.username, review_notes || 'Marked as false positive', ...ids]
+      );
+
+      await logAudit({
+        req,
+        admin: req.admin,
+        actionType: 'header_violations_bulk_false_positive',
+        entityType: 'header_violation',
+        entityId: ids,
+        actionDescription: `Bulk marked ${ids.length} header violation(s) as false positive`,
+        actionReason: review_notes
+      });
+
+      console.log(`[Admin] Bulk marked ${ids.length} header violations as false positive by ${req.admin.username}`);
+      res.json({ success: true, marked: ids.length });
+    } catch (error) {
+      console.error('[Admin] Bulk false positive header violations error:', error.message);
+
+      await logAudit({
+        req,
+        admin: req.admin,
+        actionType: 'header_violations_bulk_false_positive',
+        entityType: 'header_violation',
+        entityId: req.body.ids,
+        actionDescription: `Failed to bulk mark ${req.body.ids?.length || 0} header violation(s) as false positive`,
+        success: false,
+        errorMessage: error.message
+      });
+
+      res.status(500).json({ error: 'Failed to mark header violations as false positive' });
+    }
+  });
+
+  /**
    * POST /api/admin/headers/baselines/bulk-delete
    * Bulk delete header baselines
    */

@@ -47,7 +47,7 @@
 
       // Store original methods
       this.originalMethods = {
-        fetch: window.fetch,
+        fetch: window.fetch.bind(window),
         XMLHttpRequest: window.XMLHttpRequest,
         sendBeacon: navigator.sendBeacon ? navigator.sendBeacon.bind(navigator) : null
       };
